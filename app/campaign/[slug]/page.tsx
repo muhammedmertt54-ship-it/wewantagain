@@ -230,7 +230,7 @@ const realProgress = Math.min((realSupporters / goal) * 100, 100);
     No verified supporters yet.
   </p>
 ) : (
-  countries.map((item) => {
+  countries.map((item: { name: string; count: number }) => {
     const percent =
       realSupporters > 0
         ? (item.count / realSupporters) * 100

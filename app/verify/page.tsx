@@ -1,27 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
 export default function VerifyPage() {
-  const searchParams = useSearchParams();
-
   const [status, setStatus] = useState("E-posta doğrulanıyor...");
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
     async function verifySupport() {
       try {
-        const campaign = searchParams.get("campaign");
-        const code = searchParams.get("code");
+        const params = new URLSearchParams(window.location.search);
+
+        const campaign = params.get("campaign");
+        const code = params.get("code");
 
         if (!campaign) {
           setStatus("Kampanya bilgisi bulunamadı.");
           return;
         }
 
-        // Supabase bazı doğrulama linklerinde ?code= gönderir.
         if (code) {
           const { error: exchangeError } =
             await supabase.auth.exchangeCodeForSession(code);
@@ -67,7 +65,7 @@ export default function VerifyPage() {
     }
 
     verifySupport();
-  }, [searchParams]);
+  }, []);
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-violet-50 to-white px-6">
@@ -87,7 +85,7 @@ export default function VerifyPage() {
         {success && (
           <>
             <p className="mt-3 text-slate-500">
-              Artık desteğin kampanyanın gerçek destekçi sayısına dahil edilebilir.
+              Desteğin kampanyanın doğrulanmış destekçi sayısına dahil edildi.
             </p>
 
             <a
