@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+
 export const dynamic = "force-dynamic";
 
 type Campaign = {
@@ -28,7 +29,8 @@ export default async function Home() {
     .eq("status", "active")
     .order("created_at", { ascending: false });
 
-  const rawCampaigns = campaignError || !campaignRows ? [] : campaignRows;
+  const rawCampaigns =
+    campaignError || !campaignRows ? [] : campaignRows;
 
   const campaigns: Campaign[] = await Promise.all(
     rawCampaigns.map(async (campaign) => {
@@ -96,13 +98,19 @@ export default async function Home() {
           </nav>
 
           <div className="flex items-center gap-3">
-            <button className="hidden rounded-xl border border-slate-200 px-5 py-3 font-semibold sm:block">
+            <a
+              href="/admin"
+              className="hidden rounded-xl border border-slate-200 px-5 py-3 font-semibold hover:border-violet-300 sm:block"
+            >
               Sign In
-            </button>
+            </a>
 
-            <button className="rounded-xl bg-violet-600 px-5 py-3 font-bold text-white shadow-lg shadow-violet-200 transition hover:bg-violet-700">
+            <a
+              href="/start-demand"
+              className="rounded-xl bg-violet-600 px-5 py-3 font-bold text-white shadow-lg shadow-violet-200 transition hover:bg-violet-700"
+            >
               + Start a Demand
-            </button>
+            </a>
           </div>
         </div>
       </header>
@@ -372,9 +380,12 @@ export default async function Home() {
             </div>
           </div>
 
-          <button className="rounded-xl bg-violet-600 px-8 py-4 font-black text-white shadow-lg shadow-violet-200 hover:bg-violet-700">
+          <a
+            href="/start-demand"
+            className="rounded-xl bg-violet-600 px-8 py-4 font-black text-white shadow-lg shadow-violet-200 hover:bg-violet-700"
+          >
             + START A DEMAND
-          </button>
+          </a>
         </div>
       </section>
 
