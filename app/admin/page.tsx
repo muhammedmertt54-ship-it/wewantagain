@@ -68,7 +68,9 @@ export default function AdminPage() {
     setLoading(false);
   }
 
-  async function handleLogin(e: React.FormEvent<HTMLFormElement>) {
+  async function handleLogin(
+    e: React.FormEvent<HTMLFormElement>
+  ) {
     e.preventDefault();
 
     setMessage("");
@@ -175,7 +177,9 @@ export default function AdminPage() {
             <div className="text-center">
               <div className="text-3xl font-black">
                 WEWANT
-                <span className="text-violet-600">AGAIN</span>
+                <span className="text-violet-600">
+                  AGAIN
+                </span>
               </div>
 
               <div className="mt-2 text-sm font-bold text-slate-400">
@@ -183,14 +187,21 @@ export default function AdminPage() {
               </div>
             </div>
 
-            <form onSubmit={handleLogin} className="mt-8">
+            <form
+              onSubmit={handleLogin}
+              className="mt-8"
+            >
               <label className="block">
-                <span className="text-sm font-black">Email</span>
+                <span className="text-sm font-black">
+                  Email
+                </span>
 
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) =>
+                    setEmail(e.target.value)
+                  }
                   className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-4 outline-none focus:border-violet-500"
                   placeholder="admin@example.com"
                   required
@@ -198,12 +209,16 @@ export default function AdminPage() {
               </label>
 
               <label className="mt-5 block">
-                <span className="text-sm font-black">Password</span>
+                <span className="text-sm font-black">
+                  Password
+                </span>
 
                 <input
                   type="password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) =>
+                    setPassword(e.target.value)
+                  }
                   className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-4 outline-none focus:border-violet-500"
                   placeholder="••••••••"
                   required
@@ -221,7 +236,9 @@ export default function AdminPage() {
                 disabled={loginLoading}
                 className="mt-6 w-full rounded-xl bg-violet-600 py-4 font-black text-white hover:bg-violet-700 disabled:opacity-60"
               >
-                {loginLoading ? "SIGNING IN..." : "SIGN IN"}
+                {loginLoading
+                  ? "SIGNING IN..."
+                  : "SIGN IN"}
               </button>
             </form>
           </div>
@@ -258,11 +275,13 @@ export default function AdminPage() {
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-5">
           <div>
             <div className="text-2xl font-black">
               WEWANT
-              <span className="text-violet-600">AGAIN</span>
+              <span className="text-violet-600">
+                AGAIN
+              </span>
             </div>
 
             <div className="text-xs font-bold tracking-widest text-slate-400">
@@ -270,12 +289,28 @@ export default function AdminPage() {
             </div>
           </div>
 
-          <button
-            onClick={handleLogout}
-            className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold hover:border-red-300 hover:text-red-600"
-          >
-            Sign out
-          </button>
+          <div className="flex flex-wrap gap-3">
+            <a
+              href="/admin/users"
+              className="rounded-xl bg-violet-600 px-4 py-3 text-sm font-black text-white hover:bg-violet-700"
+            >
+              👥 Manage Users
+            </a>
+
+            <a
+              href="/"
+              className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold hover:border-violet-300"
+            >
+              Website
+            </a>
+
+            <button
+              onClick={handleLogout}
+              className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold hover:border-red-300 hover:text-red-600"
+            >
+              Sign out
+            </button>
+          </div>
         </div>
       </header>
 
@@ -302,7 +337,9 @@ export default function AdminPage() {
 
         {campaigns.length === 0 ? (
           <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-            <div className="text-4xl">✓</div>
+            <div className="text-4xl">
+              ✓
+            </div>
 
             <h2 className="mt-4 text-2xl font-black">
               No pending campaigns
@@ -350,7 +387,9 @@ export default function AdminPage() {
                         </div>
 
                         <div className="mt-1 font-black">
-                          {Number(campaign.goal).toLocaleString()}
+                          {Number(
+                            campaign.goal
+                          ).toLocaleString()}
                         </div>
                       </div>
                     </div>
@@ -373,7 +412,10 @@ export default function AdminPage() {
                   <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-52 lg:grid-cols-1">
                     <button
                       onClick={() =>
-                        updateCampaign(campaign.id, "active")
+                        updateCampaign(
+                          campaign.id,
+                          "active"
+                        )
                       }
                       className="rounded-xl bg-green-600 px-5 py-4 font-black text-white hover:bg-green-700"
                     >
@@ -382,7 +424,10 @@ export default function AdminPage() {
 
                     <button
                       onClick={() =>
-                        updateCampaign(campaign.id, "rejected")
+                        updateCampaign(
+                          campaign.id,
+                          "rejected"
+                        )
                       }
                       className="rounded-xl bg-red-50 px-5 py-4 font-black text-red-700 hover:bg-red-100"
                     >

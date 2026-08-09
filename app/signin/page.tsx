@@ -9,6 +9,7 @@ export default function SignInPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [username, setUsername] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
@@ -35,6 +36,14 @@ export default function SignInPage() {
     return next;
   }
 
+  function cleanUsername(value: string) {
+    return value
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9_]/g, "")
+      .slice(0, 24);
+  }
+
   async function checkSession() {
     const {
       data: { session },
@@ -48,7 +57,9 @@ export default function SignInPage() {
     setCheckingSession(false);
   }
 
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(
+    e: FormEvent<HTMLFormElement>
+  ) {
     e.preventDefault();
 
     setMessage("");
@@ -66,13 +77,25 @@ export default function SignInPage() {
       return;
     }
 
+    if (mode === "signup") {
+      const finalUsername = cleanUsername(username);
+
+      if (finalUsername.length < 3) {
+        setMessage(
+          "Username must be at least 3 characters."
+        );
+        return;
+      }
+    }
+
     setLoading(true);
 
     if (mode === "signin") {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: cleanEmail,
-        password,
-      });
+      const { error } =
+        await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        });
 
       setLoading(false);
 
@@ -86,6 +109,8 @@ export default function SignInPage() {
       return;
     }
 
+    const finalUsername = cleanUsername(username);
+
     const { data, error } = await supabase.auth.signUp({
       email: cleanEmail,
       password,
@@ -96,19 +121,61 @@ export default function SignInPage() {
       },
     });
 
-    setLoading(false);
-
     if (error) {
       console.error(error);
+      setLoading(false);
 
-      if (error.message.toLowerCase().includes("already")) {
-        setMessage("An account with this email may already exist.");
+      if (
+        error.message
+          .toLowerCase()
+          .includes("already")
+      ) {
+        setMessage(
+          "An account with this email may already exist."
+        );
       } else {
-        setMessage("Account could not be created. Please try again.");
+        setMessage(
+          "Account could not be created. Please try again."
+        );
       }
 
       return;
     }
+
+    if (!data.user) {
+      setLoading(false);
+      setMessage(
+        "Account could not be created."
+      );
+      return;
+    }
+
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .insert({
+        user_id: data.user.id,
+        username: finalUsername,
+        display_name: finalUsername,
+      });
+
+    if (profileError) {
+      console.error(profileError);
+
+      if (profileError.code === "23505") {
+        setMessage(
+          "This username is already taken."
+        );
+      } else {
+        setMessage(
+          "Account was created, but profile could not be created."
+        );
+      }
+
+      setLoading(false);
+      return;
+    }
+
+    setLoading(false);
 
     if (data.session) {
       window.location.href = getNextUrl();
@@ -116,6 +183,7 @@ export default function SignInPage() {
     }
 
     setSuccess(true);
+
     setMessage(
       "Account created. Check your email and confirm your address before signing in."
     );
@@ -129,18 +197,22 @@ export default function SignInPage() {
 
     const nextUrl = getNextUrl();
 
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/signin?next=${encodeURIComponent(
-          nextUrl
-        )}`,
-      },
-    });
+    const { error } =
+      await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/signin?next=${encodeURIComponent(
+            nextUrl
+          )}`,
+        },
+      });
 
     if (error) {
       console.error(error);
-      setMessage("Google sign in could not be started.");
+
+      setMessage(
+        "Google sign in could not be started."
+      );
     }
   }
 
@@ -168,7 +240,9 @@ export default function SignInPage() {
           <div className="text-center">
             <div className="text-3xl font-black tracking-tight">
               WEWANT
-              <span className="text-violet-600">AGAIN</span>
+              <span className="text-violet-600">
+                AGAIN
+              </span>
             </div>
 
             <p className="mt-2 text-sm font-semibold text-slate-400">
@@ -229,7 +303,40 @@ export default function SignInPage() {
           </div>
 
           <form onSubmit={handleSubmit}>
-            <label className="block">
+            {mode === "signup" && (
+              <label className="block">
+                <span className="text-sm font-black">
+                  Username
+                </span>
+
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) =>
+                    setUsername(
+                      cleanUsername(e.target.value)
+                    )
+                  }
+                  placeholder="your_username"
+                  className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-4 outline-none focus:border-violet-500"
+                  minLength={3}
+                  maxLength={24}
+                  required
+                />
+
+                <p className="mt-2 text-xs text-slate-400">
+                  Only letters, numbers and underscores.
+                </p>
+              </label>
+            )}
+
+            <label
+              className={
+                mode === "signup"
+                  ? "mt-5 block"
+                  : "block"
+              }
+            >
               <span className="text-sm font-black">
                 Email
               </span>
@@ -237,7 +344,9 @@ export default function SignInPage() {
               <input
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) =>
+                  setEmail(e.target.value)
+                }
                 placeholder="you@example.com"
                 className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-4 outline-none focus:border-violet-500"
                 required
@@ -252,7 +361,9 @@ export default function SignInPage() {
               <input
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) =>
+                  setPassword(e.target.value)
+                }
                 placeholder="Minimum 6 characters"
                 className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-4 outline-none focus:border-violet-500"
                 required
