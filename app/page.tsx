@@ -1,3 +1,4 @@
+import Header from "./Header";
 import { supabase } from "../lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -69,51 +70,7 @@ export default async function Home() {
 
   return (
     <main className="min-h-screen bg-white text-slate-950">
-      {/* HEADER */}
-      <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <a href="/">
-            <div className="text-2xl font-black tracking-tight">
-              WEWANT
-              <span className="text-violet-600">AGAIN</span>
-            </div>
-
-            <div className="text-[10px] font-semibold tracking-[0.22em] text-slate-500">
-              YOUR VOICE. THEIR ATTENTION.
-            </div>
-          </a>
-
-          <nav className="hidden items-center gap-8 font-semibold md:flex">
-            <a href="#categories" className="hover:text-violet-600">
-              📺 TV & Series
-            </a>
-
-            <a href="#categories" className="hover:text-violet-600">
-              🎬 Movies
-            </a>
-
-            <a href="#categories" className="hover:text-violet-600">
-              🎮 Games
-            </a>
-          </nav>
-
-          <div className="flex items-center gap-3">
-            <a
-              href="/signin"
-              className="hidden rounded-xl border border-slate-200 px-5 py-3 font-semibold hover:border-violet-300 sm:block"
-            >
-              Sign In
-            </a>
-
-            <a
-              href="/start-demand"
-              className="rounded-xl bg-violet-600 px-5 py-3 font-bold text-white shadow-lg shadow-violet-200 transition hover:bg-violet-700"
-            >
-              + Start a Demand
-            </a>
-          </div>
-        </div>
-      </header>
+      <Header />
 
       {/* HERO */}
       <section className="relative overflow-hidden border-b border-violet-100 bg-gradient-to-b from-violet-50 via-indigo-50/70 to-white">
@@ -185,15 +142,21 @@ export default async function Home() {
       </section>
 
       {/* TRENDING */}
-      <section className="mx-auto max-w-7xl px-6 py-12">
+      <section
+        id="trending"
+        className="scroll-mt-24 mx-auto max-w-7xl px-6 py-12"
+      >
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-2xl font-black">
             🔥 TRENDING NOW
           </h2>
 
-          <button className="font-semibold text-slate-500 hover:text-violet-600">
+          <a
+            href="#trending"
+            className="font-semibold text-slate-500 hover:text-violet-600"
+          >
             View all →
-          </button>
+          </a>
         </div>
 
         {trending.length === 0 ? (
@@ -288,15 +251,21 @@ export default async function Home() {
       </section>
 
       {/* MOST WANTED */}
-      <section className="mx-auto max-w-7xl px-6 pb-12">
+      <section
+        id="most-wanted"
+        className="scroll-mt-24 mx-auto max-w-7xl px-6 pb-12"
+      >
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-2xl font-black">
             🏆 MOST WANTED
           </h2>
 
-          <button className="font-semibold text-slate-500 hover:text-violet-600">
+          <a
+            href="#most-wanted"
+            className="font-semibold text-slate-500 hover:text-violet-600"
+          >
             View all →
-          </button>
+          </a>
         </div>
 
         <div className="grid overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm md:grid-cols-5">
@@ -331,7 +300,7 @@ export default async function Home() {
       {/* CATEGORIES */}
       <section
         id="categories"
-        className="mx-auto max-w-7xl px-6 pb-12"
+        className="scroll-mt-24 mx-auto max-w-7xl px-6 pb-12"
       >
         <h2 className="mb-6 text-2xl font-black">
           ★ BROWSE BY CATEGORY
@@ -414,17 +383,38 @@ export default async function Home() {
           </div>
 
           <div>
-            <h3 className="font-black">Explore</h3>
+            <h3 className="font-black">
+              Explore
+            </h3>
 
             <div className="mt-4 space-y-2 text-sm text-slate-500">
-              <p>Trending</p>
-              <p>Most Wanted</p>
-              <p>Categories</p>
+              <a
+                href="#trending"
+                className="block hover:text-violet-600"
+              >
+                Trending
+              </a>
+
+              <a
+                href="#most-wanted"
+                className="block hover:text-violet-600"
+              >
+                Most Wanted
+              </a>
+
+              <a
+                href="#categories"
+                className="block hover:text-violet-600"
+              >
+                Categories
+              </a>
             </div>
           </div>
 
           <div>
-            <h3 className="font-black">Categories</h3>
+            <h3 className="font-black">
+              Categories
+            </h3>
 
             <div className="mt-4 space-y-2 text-sm text-slate-500">
               <p>TV & Series</p>
@@ -434,7 +424,9 @@ export default async function Home() {
           </div>
 
           <div>
-            <h3 className="font-black">WeWantAgain</h3>
+            <h3 className="font-black">
+              WeWantAgain
+            </h3>
 
             <div className="mt-4 space-y-2 text-sm text-slate-500">
               <p>About</p>

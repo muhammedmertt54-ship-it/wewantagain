@@ -1,9 +1,11 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
 export default function StartDemandPage() {
+  const [checkingSession, setCheckingSession] = useState(true);
+
   const [title, setTitle] = useState("");
   const [subtitle, setSubtitle] = useState("");
   const [category, setCategory] = useState("TV & Series");
@@ -14,6 +16,23 @@ export default function StartDemandPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    checkSession();
+  }, []);
+
+  async function checkSession() {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.user) {
+      window.location.href = "/signin?next=/start-demand";
+      return;
+    }
+
+    setCheckingSession(false);
+  }
 
   function makeSlug(value: string) {
     return value
@@ -34,6 +53,15 @@ export default function StartDemandPage() {
 
     setMessage("");
     setSuccess(false);
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.user) {
+      window.location.href = "/signin?next=/start-demand";
+      return;
+    }
 
     if (
       !title.trim() ||
@@ -106,6 +134,16 @@ export default function StartDemandPage() {
     }
   }
 
+  if (checkingSession) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50">
+        <div className="font-black text-violet-600">
+          Checking account...
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">
       <header className="border-b border-slate-200 bg-white">
@@ -121,12 +159,21 @@ export default function StartDemandPage() {
             </div>
           </a>
 
-          <a
-            href="/"
-            className="rounded-xl border border-slate-200 px-5 py-3 font-bold hover:border-violet-300"
-          >
-            ← Home
-          </a>
+          <div className="flex gap-3">
+            <a
+              href="/account"
+              className="rounded-xl border border-slate-200 px-5 py-3 font-bold hover:border-violet-300"
+            >
+              Account
+            </a>
+
+            <a
+              href="/"
+              className="rounded-xl border border-slate-200 px-5 py-3 font-bold hover:border-violet-300"
+            >
+              ← Home
+            </a>
+          </div>
         </div>
       </header>
 
@@ -151,7 +198,9 @@ export default function StartDemandPage() {
           className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm sm:p-9"
         >
           <label className="block">
-            <span className="text-sm font-black">Demand title *</span>
+            <span className="text-sm font-black">
+              Demand title *
+            </span>
 
             <input
               value={title}
@@ -177,7 +226,9 @@ export default function StartDemandPage() {
           </label>
 
           <label className="mt-6 block">
-            <span className="text-sm font-black">Category *</span>
+            <span className="text-sm font-black">
+              Category *
+            </span>
 
             <select
               value={category}
@@ -191,7 +242,9 @@ export default function StartDemandPage() {
           </label>
 
           <label className="mt-6 block">
-            <span className="text-sm font-black">Target company *</span>
+            <span className="text-sm font-black">
+              Target company *
+            </span>
 
             <input
               value={target}
@@ -217,7 +270,9 @@ export default function StartDemandPage() {
           </label>
 
           <label className="mt-6 block">
-            <span className="text-sm font-black">Supporter goal *</span>
+            <span className="text-sm font-black">
+              Supporter goal *
+            </span>
 
             <input
               type="number"
