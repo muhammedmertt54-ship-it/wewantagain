@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -12,6 +11,7 @@ type UserInfo = {
 export default function AccountPage() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<UserInfo | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     checkUser();
@@ -32,6 +32,13 @@ export default function AccountPage() {
       email: session.user.email ?? null,
     });
 
+    const { data: adminRow } = await supabase
+      .from("admins")
+      .select("user_id")
+      .eq("user_id", session.user.id)
+      .maybeSingle();
+
+    setIsAdmin(!!adminRow);
     setLoading(false);
   }
 
@@ -76,7 +83,6 @@ export default function AccountPage() {
 
       <section className="mx-auto max-w-3xl px-6 py-14">
         <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-          {/* ACCOUNT INFO */}
           <div className="flex items-center gap-5">
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-violet-100 text-2xl">
               👤
@@ -93,9 +99,7 @@ export default function AccountPage() {
             </div>
           </div>
 
-          {/* ACCOUNT MENU */}
           <div className="mt-8 grid gap-4 sm:grid-cols-2">
-            {/* START A DEMAND */}
             <a
               href="/start-demand"
               className="rounded-2xl border border-violet-200 bg-violet-50 p-6 transition hover:border-violet-400 hover:bg-violet-100"
@@ -111,7 +115,6 @@ export default function AccountPage() {
               </p>
             </a>
 
-            {/* SUPPORTED DEMANDS */}
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
               <div className="text-3xl">♥</div>
 
@@ -128,7 +131,6 @@ export default function AccountPage() {
               </div>
             </div>
 
-            {/* MY DEMANDS */}
             <a
               href="/my-demands"
               className="rounded-2xl border border-slate-200 bg-slate-50 p-6 transition hover:border-violet-300 hover:bg-violet-50"
@@ -144,7 +146,6 @@ export default function AccountPage() {
               </p>
             </a>
 
-            {/* SETTINGS */}
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
               <div className="text-3xl">⚙️</div>
 
@@ -160,9 +161,25 @@ export default function AccountPage() {
                 Coming soon
               </div>
             </div>
+
+            {isAdmin && (
+              <a
+                href="/admin"
+                className="rounded-2xl border border-red-200 bg-red-50 p-6 transition hover:border-red-400 hover:bg-red-100 sm:col-span-2"
+              >
+                <div className="text-3xl">🛡️</div>
+
+                <h2 className="mt-4 text-xl font-black text-red-700">
+                  Admin Panel
+                </h2>
+
+                <p className="mt-2 text-sm leading-6 text-red-600">
+                  Review pending campaigns and manage WeWantAgain.
+                </p>
+              </a>
+            )}
           </div>
 
-          {/* SIGN OUT */}
           <button
             type="button"
             onClick={handleLogout}
