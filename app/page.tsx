@@ -99,7 +99,7 @@ export default async function Home() {
 
           <div className="flex items-center gap-3">
             <a
-              href="/admin"
+              href="/signin"
               className="hidden rounded-xl border border-slate-200 px-5 py-3 font-semibold hover:border-violet-300 sm:block"
             >
               Sign In
