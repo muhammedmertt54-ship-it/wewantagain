@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -52,7 +53,7 @@ export default function AccountPage() {
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
+        <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-5">
           <a href="/">
             <div className="text-2xl font-black tracking-tight">
               WEWANT
@@ -66,7 +67,7 @@ export default function AccountPage() {
 
           <a
             href="/"
-            className="rounded-xl border border-slate-200 px-5 py-3 font-bold hover:border-violet-300"
+            className="rounded-xl border border-slate-200 px-5 py-3 font-bold transition hover:border-violet-300"
           >
             ← Home
           </a>
@@ -75,26 +76,29 @@ export default function AccountPage() {
 
       <section className="mx-auto max-w-3xl px-6 py-14">
         <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+          {/* ACCOUNT INFO */}
           <div className="flex items-center gap-5">
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-violet-100 text-2xl">
               👤
             </div>
 
-            <div>
+            <div className="min-w-0">
               <div className="text-sm font-bold text-slate-400">
                 YOUR ACCOUNT
               </div>
 
-              <h1 className="mt-1 text-2xl font-black">
+              <h1 className="mt-1 break-all text-2xl font-black">
                 {user?.email ?? "Account"}
               </h1>
             </div>
           </div>
 
+          {/* ACCOUNT MENU */}
           <div className="mt-8 grid gap-4 sm:grid-cols-2">
+            {/* START A DEMAND */}
             <a
               href="/start-demand"
-              className="rounded-2xl border border-violet-200 bg-violet-50 p-6 transition hover:border-violet-400"
+              className="rounded-2xl border border-violet-200 bg-violet-50 p-6 transition hover:border-violet-400 hover:bg-violet-100"
             >
               <div className="text-3xl">＋</div>
 
@@ -107,6 +111,7 @@ export default function AccountPage() {
               </p>
             </a>
 
+            {/* SUPPORTED DEMANDS */}
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
               <div className="text-3xl">♥</div>
 
@@ -117,9 +122,17 @@ export default function AccountPage() {
               <p className="mt-2 text-sm leading-6 text-slate-600">
                 Your supported campaigns will appear here later.
               </p>
+
+              <div className="mt-4 text-xs font-black uppercase tracking-wide text-slate-400">
+                Coming soon
+              </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
+            {/* MY DEMANDS */}
+            <a
+              href="/my-demands"
+              className="rounded-2xl border border-slate-200 bg-slate-50 p-6 transition hover:border-violet-300 hover:bg-violet-50"
+            >
               <div className="text-3xl">📣</div>
 
               <h2 className="mt-4 text-xl font-black">
@@ -127,10 +140,11 @@ export default function AccountPage() {
               </h2>
 
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Campaigns you create will appear here once we connect ownership.
+                View the campaigns you created and track their review status.
               </p>
-            </div>
+            </a>
 
+            {/* SETTINGS */}
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
               <div className="text-3xl">⚙️</div>
 
@@ -141,12 +155,18 @@ export default function AccountPage() {
               <p className="mt-2 text-sm leading-6 text-slate-600">
                 Profile and notification settings will be added here.
               </p>
+
+              <div className="mt-4 text-xs font-black uppercase tracking-wide text-slate-400">
+                Coming soon
+              </div>
             </div>
           </div>
 
+          {/* SIGN OUT */}
           <button
+            type="button"
             onClick={handleLogout}
-            className="mt-8 w-full rounded-xl border border-red-200 bg-red-50 py-4 font-black text-red-700 hover:bg-red-100"
+            className="mt-8 w-full rounded-xl border border-red-200 bg-red-50 py-4 font-black text-red-700 transition hover:bg-red-100"
           >
             SIGN OUT
           </button>

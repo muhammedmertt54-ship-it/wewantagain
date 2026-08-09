@@ -101,6 +101,7 @@ export default function StartDemandPage() {
         description: description.trim(),
         goal: numericGoal,
         status: "pending",
+        created_by: session.user.id,
       });
 
       if (error) {

@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -89,7 +90,6 @@ export default function SupportButton() {
       {open && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 px-4">
           <div className="w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl">
-
             <div className="flex items-start justify-between">
               <div>
                 <h2 className="text-2xl font-black text-slate-950">

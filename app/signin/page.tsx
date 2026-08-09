@@ -1,3 +1,4 @@
+
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
@@ -19,13 +20,28 @@ export default function SignInPage() {
     checkSession();
   }, []);
 
+  function getNextUrl() {
+    if (typeof window === "undefined") {
+      return "/";
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const next = params.get("next");
+
+    if (!next || !next.startsWith("/")) {
+      return "/";
+    }
+
+    return next;
+  }
+
   async function checkSession() {
     const {
       data: { session },
     } = await supabase.auth.getSession();
 
     if (session?.user) {
-      window.location.href = "/";
+      window.location.href = getNextUrl();
       return;
     }
 
@@ -66,7 +82,7 @@ export default function SignInPage() {
         return;
       }
 
-      window.location.href = "/";
+      window.location.href = getNextUrl();
       return;
     }
 
@@ -74,7 +90,9 @@ export default function SignInPage() {
       email: cleanEmail,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/signin`,
+        emailRedirectTo: `${window.location.origin}/signin?next=${encodeURIComponent(
+          getNextUrl()
+        )}`,
       },
     });
 
@@ -93,7 +111,7 @@ export default function SignInPage() {
     }
 
     if (data.session) {
-      window.location.href = "/";
+      window.location.href = getNextUrl();
       return;
     }
 
@@ -109,10 +127,14 @@ export default function SignInPage() {
     setMessage("");
     setSuccess(false);
 
+    const nextUrl = getNextUrl();
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/`,
+        redirectTo: `${window.location.origin}/signin?next=${encodeURIComponent(
+          nextUrl
+        )}`,
       },
     });
 
@@ -160,6 +182,7 @@ export default function SignInPage() {
               onClick={() => {
                 setMode("signin");
                 setMessage("");
+                setSuccess(false);
               }}
               className={`rounded-lg py-3 text-sm font-black transition ${
                 mode === "signin"
@@ -175,6 +198,7 @@ export default function SignInPage() {
               onClick={() => {
                 setMode("signup");
                 setMessage("");
+                setSuccess(false);
               }}
               className={`rounded-lg py-3 text-sm font-black transition ${
                 mode === "signup"
@@ -196,9 +220,11 @@ export default function SignInPage() {
 
           <div className="my-6 flex items-center gap-4">
             <div className="h-px flex-1 bg-slate-200" />
+
             <span className="text-xs font-bold text-slate-400">
               OR
             </span>
+
             <div className="h-px flex-1 bg-slate-200" />
           </div>
 
