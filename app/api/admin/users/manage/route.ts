@@ -117,7 +117,10 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const { error } =
+      const {
+        data: bannedUser,
+        error: banUserError,
+      } =
         await supabaseAdmin.auth.admin.updateUserById(
           userId,
           {
@@ -125,24 +128,30 @@ export async function POST(request: NextRequest) {
           }
         );
 
-      if (error) {
+      if (banUserError) {
         console.error(
           "User ban error:",
-          error
+          banUserError
         );
 
         return NextResponse.json(
           {
-            error:
-              "User could not be banned.",
+            error: "User could not be banned.",
+            details: banUserError.message,
           },
           { status: 500 }
         );
       }
 
+      console.log(
+        "USER BAN SUCCESS:",
+        bannedUser.user?.id
+      );
+
       return NextResponse.json({
         success: true,
         action: "ban-user",
+        userId,
       });
     }
 
@@ -155,7 +164,10 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const { error } =
+      const {
+        data: unbannedUser,
+        error: unbanUserError,
+      } =
         await supabaseAdmin.auth.admin.updateUserById(
           userId,
           {
@@ -163,24 +175,32 @@ export async function POST(request: NextRequest) {
           }
         );
 
-      if (error) {
+      if (unbanUserError) {
         console.error(
           "User unban error:",
-          error
+          unbanUserError
         );
 
         return NextResponse.json(
           {
             error:
               "User could not be unbanned.",
+            details:
+              unbanUserError.message,
           },
           { status: 500 }
         );
       }
 
+      console.log(
+        "USER UNBAN SUCCESS:",
+        unbannedUser.user?.id
+      );
+
       return NextResponse.json({
         success: true,
         action: "unban-user",
+        userId,
       });
     }
 
@@ -203,29 +223,40 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const { error } =
+      const {
+        data: deletedUser,
+        error: deleteUserError,
+      } =
         await supabaseAdmin.auth.admin.deleteUser(
           userId
         );
 
-      if (error) {
+      if (deleteUserError) {
         console.error(
           "User delete error:",
-          error
+          deleteUserError
         );
 
         return NextResponse.json(
           {
             error:
               "User could not be deleted.",
+            details:
+              deleteUserError.message,
           },
           { status: 500 }
         );
       }
 
+      console.log(
+        "USER DELETE SUCCESS:",
+        deletedUser
+      );
+
       return NextResponse.json({
         success: true,
         action: "delete-user",
+        userId,
       });
     }
 
@@ -241,41 +272,81 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const { error } = await supabaseAdmin
+      const {
+        data: bannedIp,
+        error: banIpError,
+      } = await supabaseAdmin
         .from("ip_bans")
         .upsert(
           {
             ip_address: ipAddress,
+
             reason:
               typeof body?.reason === "string"
                 ? body.reason.trim() || null
                 : null,
+
             banned_by: auth.user.id,
           },
           {
             onConflict: "ip_address",
           }
-        );
+        )
+        .select(
+          "id, ip_address, reason, banned_by, created_at"
+        )
+        .single();
 
-      if (error) {
+      if (banIpError) {
         console.error(
           "IP ban error:",
-          error
+          banIpError
         );
 
         return NextResponse.json(
           {
             error:
               "IP address could not be banned.",
+
+            details:
+              banIpError.message,
+
+            code:
+              banIpError.code,
           },
           { status: 500 }
         );
       }
 
+      if (!bannedIp) {
+        console.error(
+          "IP ban failed: no row returned.",
+          { ipAddress }
+        );
+
+        return NextResponse.json(
+          {
+            error:
+              "IP ban was not saved to the database.",
+          },
+          { status: 500 }
+        );
+      }
+
+      console.log(
+        "IP BAN SUCCESS:",
+        bannedIp
+      );
+
       return NextResponse.json({
         success: true,
         action: "ban-ip",
-        ipAddress,
+
+        ipAddress:
+          bannedIp.ip_address,
+
+        banId:
+          bannedIp.id,
       });
     }
 
@@ -291,36 +362,65 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const { error } = await supabaseAdmin
+      const {
+        data: deletedIps,
+        error: unbanIpError,
+      } = await supabaseAdmin
         .from("ip_bans")
         .delete()
-        .eq("ip_address", ipAddress);
+        .eq(
+          "ip_address",
+          ipAddress
+        )
+        .select(
+          "id, ip_address"
+        );
 
-      if (error) {
+      if (unbanIpError) {
         console.error(
           "IP unban error:",
-          error
+          unbanIpError
         );
 
         return NextResponse.json(
           {
             error:
               "IP address could not be unbanned.",
+
+            details:
+              unbanIpError.message,
+
+            code:
+              unbanIpError.code,
           },
           { status: 500 }
         );
       }
 
+      const removed =
+        (deletedIps?.length ?? 0) > 0;
+
+      console.log(
+        "IP UNBAN RESULT:",
+        {
+          ipAddress,
+          removed,
+          deletedIps,
+        }
+      );
+
       return NextResponse.json({
         success: true,
         action: "unban-ip",
         ipAddress,
+        removed,
       });
     }
 
     return NextResponse.json(
       {
-        error: "Unknown action.",
+        error:
+          "Unknown action.",
       },
       {
         status: 400,
