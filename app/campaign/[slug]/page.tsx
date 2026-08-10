@@ -2,6 +2,8 @@ import SupportButton from "../SupportButton";
 import ShareButtons from "../ShareButtons";
 import { supabase } from "../../../lib/supabase";
 
+export const dynamic = "force-dynamic";
+
 type CampaignPageProps = {
   params: Promise<{
     slug: string;
@@ -13,17 +15,15 @@ export default async function CampaignPage({
 }: CampaignPageProps) {
   const { slug } = await params;
 
-  // Kampanya bilgilerini Supabase'den al
   const { data: campaign, error: campaignError } = await supabase
     .from("campaigns")
     .select(
-      "slug, title, subtitle, category, target, description, goal, status"
+      "slug, title, subtitle, category, target, description, goal, status, image_url, image_removed"
     )
     .eq("slug", slug)
     .eq("status", "active")
     .single();
 
-  // Doğrulanmış destekçi sayısını al
   const { data: verifiedCount, error: countError } = await supabase.rpc(
     "get_verified_support_count",
     {
@@ -35,7 +35,6 @@ export default async function CampaignPage({
     ? 0
     : Number(verifiedCount ?? 0);
 
-  // Ülke dağılımını al
   const { data: countryRows, error: countryError } = await supabase.rpc(
     "get_verified_support_countries",
     {
@@ -79,6 +78,9 @@ export default async function CampaignPage({
       ? Math.min((realSupporters / goal) * 100, 100)
       : 0;
 
+  const showImage =
+    !!campaign.image_url && campaign.image_removed !== true;
+
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">
       <header className="border-b border-slate-200 bg-white">
@@ -104,17 +106,43 @@ export default async function CampaignPage({
       </header>
 
       <section className="mx-auto grid max-w-7xl gap-8 px-6 py-12 lg:grid-cols-2">
-        <div className="flex min-h-[440px] items-end rounded-3xl bg-gradient-to-br from-slate-900 via-violet-950 to-indigo-700 p-8 text-white shadow-xl">
-          <div>
-            <div className="mb-3 inline-block rounded-full bg-violet-600 px-4 py-2 text-sm font-bold">
+        <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl">
+          {showImage ? (
+            <div className="aspect-[16/10] w-full bg-slate-100">
+              <img
+                src={campaign.image_url}
+                alt={campaign.subtitle}
+                className="h-full w-full object-cover"
+              />
+            </div>
+          ) : (
+            <div className="flex aspect-[16/10] w-full items-center justify-center bg-gradient-to-br from-slate-900 via-violet-950 to-indigo-700 p-8 text-center text-white">
+              <div>
+                <div className="text-sm font-bold uppercase tracking-widest text-white/60">
+                  {campaign.category}
+                </div>
+
+                <div className="mt-3 text-4xl font-black">
+                  {campaign.subtitle}
+                </div>
+
+                <p className="mt-3 text-white/60">
+                  Campaign image unavailable
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div className="p-6">
+            <div className="inline-block rounded-full bg-violet-100 px-4 py-2 text-sm font-black text-violet-700">
               {campaign.category}
             </div>
 
-            <h2 className="text-5xl font-black">
+            <h2 className="mt-4 text-3xl font-black">
               {campaign.subtitle}
             </h2>
 
-            <p className="mt-3 text-lg text-white/70">
+            <p className="mt-2 text-slate-500">
               Make your voice heard.
             </p>
           </div>
@@ -197,7 +225,7 @@ export default async function CampaignPage({
             Why we want it back
           </h2>
 
-          <p className="mt-5 text-lg leading-8 text-slate-600">
+          <p className="mt-5 whitespace-pre-wrap text-lg leading-8 text-slate-600">
             {campaign.description}
           </p>
 

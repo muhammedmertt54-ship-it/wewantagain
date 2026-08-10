@@ -13,15 +13,34 @@ export default function Header() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setLoggedIn(!!session?.user);
-      setChecking(false);
-    });
+    } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        setLoggedIn(!!session?.user);
+        setChecking(false);
+
+        if (session?.access_token) {
+          await registerIp(session.access_token);
+        }
+      }
+    );
 
     return () => {
       subscription.unsubscribe();
     };
   }, []);
+
+  async function registerIp(accessToken: string) {
+    try {
+      await fetch("/api/account/register-ip", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+    } catch (error) {
+      console.error("IP registration failed:", error);
+    }
+  }
 
   async function checkUser() {
     const {
@@ -30,6 +49,10 @@ export default function Header() {
 
     setLoggedIn(!!session?.user);
     setChecking(false);
+
+    if (session?.access_token) {
+      await registerIp(session.access_token);
+    }
   }
 
   return (
@@ -38,7 +61,9 @@ export default function Header() {
         <a href="/" className="block">
           <div className="text-2xl font-black tracking-tight">
             WEWANT
-            <span className="text-violet-600">AGAIN</span>
+            <span className="text-violet-600">
+              AGAIN
+            </span>
           </div>
 
           <div className="text-[10px] font-semibold tracking-[0.22em] text-slate-500">
@@ -46,7 +71,6 @@ export default function Header() {
           </div>
         </a>
 
-        {/* DESKTOP MENU */}
         <nav className="hidden items-center gap-7 font-semibold lg:flex">
           <a
             href="/#trending"
@@ -89,17 +113,22 @@ export default function Header() {
             ))}
 
           <a
-            href={loggedIn ? "/start-demand" : "/signin?next=/start-demand"}
+            href={
+              loggedIn
+                ? "/start-demand"
+                : "/signin?next=/start-demand"
+            }
             className="rounded-xl bg-violet-600 px-5 py-3 font-bold text-white shadow-lg shadow-violet-200 transition hover:bg-violet-700"
           >
             + Start a Demand
           </a>
         </div>
 
-        {/* MOBILE HAMBURGER */}
         <button
           type="button"
-          onClick={() => setMenuOpen((current) => !current)}
+          onClick={() =>
+            setMenuOpen((current) => !current)
+          }
           className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 text-2xl sm:hidden"
           aria-label="Open menu"
         >
@@ -107,7 +136,6 @@ export default function Header() {
         </button>
       </div>
 
-      {/* MOBILE MENU */}
       {menuOpen && (
         <div className="border-t border-slate-200 bg-white px-5 py-5 shadow-lg sm:hidden">
           <div className="space-y-2">
@@ -159,7 +187,11 @@ export default function Header() {
               ))}
 
             <a
-              href={loggedIn ? "/start-demand" : "/signin?next=/start-demand"}
+              href={
+                loggedIn
+                  ? "/start-demand"
+                  : "/signin?next=/start-demand"
+              }
               className="mt-3 block rounded-xl bg-violet-600 px-4 py-4 text-center font-black text-white"
             >
               + START A DEMAND

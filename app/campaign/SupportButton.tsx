@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from "react";
@@ -37,6 +36,10 @@ export default function SupportButton() {
       return;
     }
 
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
     setLoading(true);
 
     const { error: insertError } = await supabase
@@ -46,6 +49,7 @@ export default function SupportButton() {
         country,
         campaign_slug: campaignSlug,
         verified: false,
+        user_id: session?.user?.id ?? null,
       });
 
     if (insertError && insertError.code !== "23505") {
@@ -109,6 +113,8 @@ export default function SupportButton() {
               </button>
             </div>
 
+            {sessionNotice()}
+
             <input
               type="email"
               value={email}
@@ -170,4 +176,8 @@ export default function SupportButton() {
       )}
     </>
   );
+}
+
+function sessionNotice() {
+  return null;
 }

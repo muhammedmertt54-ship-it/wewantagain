@@ -15,10 +15,8 @@ type Profile = {
 
 export default function AccountPage() {
   const [loading, setLoading] = useState(true);
-
   const [user, setUser] = useState<UserInfo | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
-
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
@@ -65,20 +63,16 @@ export default function AccountPage() {
     }
 
     setIsAdmin(!!adminRow);
-
     setLoading(false);
   }
 
   async function handleLogout() {
     await supabase.auth.signOut();
-
     window.location.href = "/";
   }
 
   async function copyUserId() {
-    if (!user?.id) {
-      return;
-    }
+    if (!user?.id) return;
 
     await navigator.clipboard.writeText(user.id);
   }
@@ -189,7 +183,10 @@ export default function AccountPage() {
               </p>
             </a>
 
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
+            <a
+              href="/supported-demands"
+              className="rounded-2xl border border-slate-200 bg-slate-50 p-6 transition hover:border-violet-300 hover:bg-violet-50"
+            >
               <div className="text-3xl">
                 ♥
               </div>
@@ -199,13 +196,9 @@ export default function AccountPage() {
               </h2>
 
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Your supported campaigns will appear here later.
+                View the campaigns you have supported and verified.
               </p>
-
-              <div className="mt-4 text-xs font-black uppercase tracking-wide text-slate-400">
-                Coming soon
-              </div>
-            </div>
+            </a>
 
             <a
               href="/my-demands"
@@ -224,7 +217,10 @@ export default function AccountPage() {
               </p>
             </a>
 
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
+            <a
+              href="/settings"
+              className="rounded-2xl border border-slate-200 bg-slate-50 p-6 transition hover:border-violet-300 hover:bg-violet-50"
+            >
               <div className="text-3xl">
                 ⚙️
               </div>
@@ -234,13 +230,9 @@ export default function AccountPage() {
               </h2>
 
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Username and account settings will be available here.
+                Change your username and display name.
               </p>
-
-              <div className="mt-4 text-xs font-black uppercase tracking-wide text-slate-400">
-                Coming soon
-              </div>
-            </div>
+            </a>
 
             {isAdmin && (
               <a

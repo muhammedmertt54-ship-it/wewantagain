@@ -14,6 +14,8 @@ type Campaign = {
   goal: number;
   status: "pending" | "active" | "rejected";
   created_at: string;
+  image_url: string | null;
+  image_removed: boolean;
 };
 
 export default function MyDemandsPage() {
@@ -38,7 +40,7 @@ export default function MyDemandsPage() {
     const { data, error } = await supabase
       .from("campaigns")
       .select(
-        "id, slug, title, subtitle, category, target, description, goal, status, created_at"
+        "id, slug, title, subtitle, category, target, description, goal, status, created_at, image_url, image_removed"
       )
       .eq("created_by", session.user.id)
       .order("created_at", { ascending: false });
@@ -67,8 +69,14 @@ export default function MyDemandsPage() {
   }
 
   function statusText(status: Campaign["status"]) {
-    if (status === "active") return "APPROVED";
-    if (status === "rejected") return "REJECTED";
+    if (status === "active") {
+      return "APPROVED";
+    }
+
+    if (status === "rejected") {
+      return "REJECTED";
+    }
+
     return "PENDING REVIEW";
   }
 
@@ -89,7 +97,9 @@ export default function MyDemandsPage() {
           <a href="/">
             <div className="text-2xl font-black tracking-tight">
               WEWANT
-              <span className="text-violet-600">AGAIN</span>
+              <span className="text-violet-600">
+                AGAIN
+              </span>
             </div>
 
             <div className="text-[10px] font-semibold tracking-[0.22em] text-slate-500">
@@ -138,7 +148,9 @@ export default function MyDemandsPage() {
 
         {campaigns.length === 0 ? (
           <div className="mt-8 rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-            <div className="text-5xl">📣</div>
+            <div className="text-5xl">
+              📣
+            </div>
 
             <h2 className="mt-5 text-2xl font-black">
               No demands yet
@@ -157,73 +169,132 @@ export default function MyDemandsPage() {
           </div>
         ) : (
           <div className="mt-8 space-y-5">
-            {campaigns.map((campaign) => (
-              <article
-                key={campaign.id}
-                className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
-              >
-                <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-black text-violet-700">
-                        {campaign.category}
-                      </span>
+            {campaigns.map((campaign) => {
+              const showImage =
+                !!campaign.image_url &&
+                !campaign.image_removed;
 
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-black ${statusStyle(
-                          campaign.status
-                        )}`}
-                      >
-                        {statusText(campaign.status)}
-                      </span>
+              return (
+                <article
+                  key={campaign.id}
+                  className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
+                >
+                  <div className="grid gap-0 md:grid-cols-[280px_1fr]">
+                    <div className="min-h-[220px] bg-slate-100">
+                      {showImage ? (
+                        <img
+                          src={campaign.image_url!}
+                          alt={campaign.subtitle}
+                          className="h-full min-h-[220px] w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full min-h-[220px] items-center justify-center bg-gradient-to-br from-slate-950 via-violet-950 to-indigo-700 p-8 text-center text-white">
+                          <div>
+                            <div className="text-xs font-black uppercase tracking-widest text-white/60">
+                              {campaign.category}
+                            </div>
+
+                            <div className="mt-3 text-2xl font-black">
+                              {campaign.subtitle}
+                            </div>
+
+                            <div className="mt-3 text-sm text-white/50">
+                              Image unavailable
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
-                    <h2 className="mt-4 text-2xl font-black">
-                      {campaign.title}
-                    </h2>
+                    <div className="p-6 sm:p-8">
+                      <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-black text-violet-700">
+                              {campaign.category}
+                            </span>
 
-                    <p className="mt-1 text-lg font-bold text-violet-600">
-                      {campaign.subtitle}
-                    </p>
+                            <span
+                              className={`rounded-full px-3 py-1 text-xs font-black ${statusStyle(
+                                campaign.status
+                              )}`}
+                            >
+                              {statusText(campaign.status)}
+                            </span>
+                          </div>
 
-                    <p className="mt-4 max-w-2xl leading-7 text-slate-600">
-                      {campaign.description}
-                    </p>
+                          <h2 className="mt-4 text-2xl font-black">
+                            {campaign.title}
+                          </h2>
 
-                    <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-xl bg-slate-50 p-4">
-                        <div className="text-xs font-bold uppercase text-slate-400">
-                          Target
+                          <p className="mt-1 text-lg font-bold text-violet-600">
+                            {campaign.subtitle}
+                          </p>
+
+                          <p className="mt-4 max-w-2xl whitespace-pre-wrap leading-7 text-slate-600">
+                            {campaign.description}
+                          </p>
+
+                          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                            <div className="rounded-xl bg-slate-50 p-4">
+                              <div className="text-xs font-bold uppercase text-slate-400">
+                                Target
+                              </div>
+
+                              <div className="mt-1 font-black">
+                                {campaign.target}
+                              </div>
+                            </div>
+
+                            <div className="rounded-xl bg-slate-50 p-4">
+                              <div className="text-xs font-bold uppercase text-slate-400">
+                                Goal
+                              </div>
+
+                              <div className="mt-1 font-black">
+                                {Number(
+                                  campaign.goal
+                                ).toLocaleString()}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-5 text-xs text-slate-400">
+                            Submitted:{" "}
+                            {new Date(
+                              campaign.created_at
+                            ).toLocaleString()}
+                          </div>
                         </div>
 
-                        <div className="mt-1 font-black">
-                          {campaign.target}
-                        </div>
-                      </div>
+                        <div className="w-full sm:w-auto">
+                          {campaign.status === "active" && (
+                            <a
+                              href={`/campaign/${campaign.slug}`}
+                              className="block rounded-xl bg-violet-600 px-5 py-3 text-center font-black text-white hover:bg-violet-700"
+                            >
+                              VIEW CAMPAIGN
+                            </a>
+                          )}
 
-                      <div className="rounded-xl bg-slate-50 p-4">
-                        <div className="text-xs font-bold uppercase text-slate-400">
-                          Goal
-                        </div>
+                          {campaign.status === "pending" && (
+                            <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-3 text-center text-sm font-black text-amber-700">
+                              WAITING FOR REVIEW
+                            </div>
+                          )}
 
-                        <div className="mt-1 font-black">
-                          {Number(campaign.goal).toLocaleString()}
+                          {campaign.status === "rejected" && (
+                            <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-3 text-center text-sm font-black text-red-700">
+                              NOT APPROVED
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
                   </div>
-
-                  {campaign.status === "active" && (
-                    <a
-                      href={`/campaign/${campaign.slug}`}
-                      className="rounded-xl bg-violet-600 px-5 py-3 text-center font-black text-white hover:bg-violet-700"
-                    >
-                      VIEW CAMPAIGN
-                    </a>
-                  )}
-                </div>
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </div>
         )}
       </section>

@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
-type ManageAction = "ban" | "unban" | "delete";
+type UserAction =
+  | "ban-user"
+  | "unban-user"
+  | "delete-user"
+  | "ban-ip"
+  | "unban-ip";
 
 async function requireAdmin(request: NextRequest) {
   const authorization = request.headers.get("authorization");
@@ -62,142 +67,279 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
 
+    const action =
+      typeof body?.action === "string"
+        ? (body.action as UserAction)
+        : null;
+
     const userId =
       typeof body?.userId === "string"
         ? body.userId.trim()
         : "";
 
-    const action =
-      typeof body?.action === "string"
-        ? (body.action as ManageAction)
-        : null;
+    const ipAddress =
+      typeof body?.ipAddress === "string"
+        ? body.ipAddress.trim()
+        : "";
 
-    if (!userId) {
-      return NextResponse.json(
-        { error: "User ID is required." },
-        { status: 400 }
-      );
-    }
-
-    if (!action || !["ban", "unban", "delete"].includes(action)) {
+    if (
+      !action ||
+      ![
+        "ban-user",
+        "unban-user",
+        "delete-user",
+        "ban-ip",
+        "unban-ip",
+      ].includes(action)
+    ) {
       return NextResponse.json(
         { error: "Invalid action." },
         { status: 400 }
       );
     }
 
-    if (userId === auth.user.id) {
-      return NextResponse.json(
-        {
-          error:
-            "You cannot ban or delete your own admin account.",
-        },
-        { status: 400 }
-      );
-    }
+    // USER BAN
+    if (action === "ban-user") {
+      if (!userId) {
+        return NextResponse.json(
+          { error: "User ID is required." },
+          { status: 400 }
+        );
+      }
 
-    const { data: targetAdmin } = await supabaseAdmin
-      .from("admins")
-      .select("user_id")
-      .eq("user_id", userId)
-      .maybeSingle();
+      if (userId === auth.user.id) {
+        return NextResponse.json(
+          {
+            error:
+              "You cannot ban your own admin account.",
+          },
+          { status: 400 }
+        );
+      }
 
-    if (targetAdmin) {
-      return NextResponse.json(
-        {
-          error:
-            "Admin accounts cannot be managed from this screen.",
-        },
-        { status: 403 }
-      );
-    }
-
-    if (action === "ban") {
-      const {
-        data,
-        error,
-      } = await supabaseAdmin.auth.admin.updateUserById(
-        userId,
-        {
-          ban_duration: "876000h",
-        }
-      );
+      const { error } =
+        await supabaseAdmin.auth.admin.updateUserById(
+          userId,
+          {
+            ban_duration: "876000h",
+          }
+        );
 
       if (error) {
-        console.error("Ban user error:", error);
+        console.error(
+          "User ban error:",
+          error
+        );
 
         return NextResponse.json(
-          { error: "User could not be banned." },
+          {
+            error:
+              "User could not be banned.",
+          },
           { status: 500 }
         );
       }
 
       return NextResponse.json({
         success: true,
-        action: "ban",
-        userId: data.user.id,
+        action: "ban-user",
       });
     }
 
-    if (action === "unban") {
-      const {
-        data,
-        error,
-      } = await supabaseAdmin.auth.admin.updateUserById(
-        userId,
-        {
-          ban_duration: "none",
-        }
-      );
+    // USER UNBAN
+    if (action === "unban-user") {
+      if (!userId) {
+        return NextResponse.json(
+          { error: "User ID is required." },
+          { status: 400 }
+        );
+      }
+
+      const { error } =
+        await supabaseAdmin.auth.admin.updateUserById(
+          userId,
+          {
+            ban_duration: "none",
+          }
+        );
 
       if (error) {
-        console.error("Unban user error:", error);
+        console.error(
+          "User unban error:",
+          error
+        );
 
         return NextResponse.json(
-          { error: "User ban could not be removed." },
+          {
+            error:
+              "User could not be unbanned.",
+          },
           { status: 500 }
         );
       }
 
       return NextResponse.json({
         success: true,
-        action: "unban",
-        userId: data.user.id,
+        action: "unban-user",
       });
     }
 
-    if (action === "delete") {
+    // USER DELETE
+    if (action === "delete-user") {
+      if (!userId) {
+        return NextResponse.json(
+          { error: "User ID is required." },
+          { status: 400 }
+        );
+      }
+
+      if (userId === auth.user.id) {
+        return NextResponse.json(
+          {
+            error:
+              "You cannot delete your own admin account.",
+          },
+          { status: 400 }
+        );
+      }
+
       const { error } =
         await supabaseAdmin.auth.admin.deleteUser(
           userId
         );
 
       if (error) {
-        console.error("Delete user error:", error);
+        console.error(
+          "User delete error:",
+          error
+        );
 
         return NextResponse.json(
-          { error: "User could not be deleted." },
+          {
+            error:
+              "User could not be deleted.",
+          },
           { status: 500 }
         );
       }
 
       return NextResponse.json({
         success: true,
-        action: "delete",
-        userId,
+        action: "delete-user",
+      });
+    }
+
+    // IP BAN
+    if (action === "ban-ip") {
+      if (!ipAddress) {
+        return NextResponse.json(
+          {
+            error:
+              "IP address is required.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const { error } = await supabaseAdmin
+        .from("ip_bans")
+        .upsert(
+          {
+            ip_address: ipAddress,
+            reason:
+              typeof body?.reason === "string"
+                ? body.reason.trim() || null
+                : null,
+            banned_by: auth.user.id,
+          },
+          {
+            onConflict: "ip_address",
+          }
+        );
+
+      if (error) {
+        console.error(
+          "IP ban error:",
+          error
+        );
+
+        return NextResponse.json(
+          {
+            error:
+              "IP address could not be banned.",
+          },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        action: "ban-ip",
+        ipAddress,
+      });
+    }
+
+    // IP UNBAN
+    if (action === "unban-ip") {
+      if (!ipAddress) {
+        return NextResponse.json(
+          {
+            error:
+              "IP address is required.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const { error } = await supabaseAdmin
+        .from("ip_bans")
+        .delete()
+        .eq("ip_address", ipAddress);
+
+      if (error) {
+        console.error(
+          "IP unban error:",
+          error
+        );
+
+        return NextResponse.json(
+          {
+            error:
+              "IP address could not be unbanned.",
+          },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        action: "unban-ip",
+        ipAddress,
       });
     }
 
     return NextResponse.json(
-      { error: "Unknown action." },
-      { status: 400 }
+      {
+        error: "Unknown action.",
+      },
+      {
+        status: 400,
+      }
     );
   } catch (error) {
-    console.error("Manage user API error:", error);
+    console.error(
+      "Admin user manage API error:",
+      error
+    );
 
     return NextResponse.json(
-      { error: "Unexpected server error." },
-      { status: 500 }
+      {
+        error:
+          "Unexpected server error.",
+      },
+      {
+        status: 500,
+      }
     );
   }
 }

@@ -1,4 +1,3 @@
-
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
@@ -44,13 +43,36 @@ export default function SignInPage() {
       .slice(0, 24);
   }
 
+  async function routeLoggedInUser(userId: string) {
+    const { data: profile, error } = await supabase
+      .from("profiles")
+      .select("username")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error(error);
+    }
+
+    if (!profile?.username) {
+      const nextUrl = getNextUrl();
+
+      window.location.href =
+        `/complete-profile?next=${encodeURIComponent(nextUrl)}`;
+
+      return;
+    }
+
+    window.location.href = getNextUrl();
+  }
+
   async function checkSession() {
     const {
       data: { session },
     } = await supabase.auth.getSession();
 
     if (session?.user) {
-      window.location.href = getNextUrl();
+      await routeLoggedInUser(session.user.id);
       return;
     }
 
@@ -91,21 +113,25 @@ export default function SignInPage() {
     setLoading(true);
 
     if (mode === "signin") {
-      const { error } =
+      const { data, error } =
         await supabase.auth.signInWithPassword({
           email: cleanEmail,
           password,
         });
 
-      setLoading(false);
-
       if (error) {
         console.error(error);
+        setLoading(false);
         setMessage("Email or password is incorrect.");
         return;
       }
 
-      window.location.href = getNextUrl();
+      if (data.user) {
+        await routeLoggedInUser(data.user.id);
+        return;
+      }
+
+      setLoading(false);
       return;
     }
 
@@ -144,9 +170,7 @@ export default function SignInPage() {
 
     if (!data.user) {
       setLoading(false);
-      setMessage(
-        "Account could not be created."
-      );
+      setMessage("Account could not be created.");
       return;
     }
 
@@ -160,6 +184,7 @@ export default function SignInPage() {
 
     if (profileError) {
       console.error(profileError);
+      setLoading(false);
 
       if (profileError.code === "23505") {
         setMessage(
@@ -171,17 +196,15 @@ export default function SignInPage() {
         );
       }
 
-      setLoading(false);
       return;
     }
-
-    setLoading(false);
 
     if (data.session) {
       window.location.href = getNextUrl();
       return;
     }
 
+    setLoading(false);
     setSuccess(true);
 
     setMessage(

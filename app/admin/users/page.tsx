@@ -3,201 +3,55 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../lib/supabase";
 
+type UserIp = {
+  id: number;
+  ip_address: string;
+  first_seen_at: string;
+  last_seen_at: string;
+};
+
 type AdminUser = {
   id: string;
   email: string | null;
-  createdAt: string;
-  lastSignInAt: string | null;
-  emailConfirmedAt: string | null;
-  bannedUntil: string | null;
-  isAdmin: boolean;
-  providers: string[];
-  metadata: Record<string, unknown>;
+  username: string | null;
+  display_name: string | null;
+
+  is_admin: boolean;
+
+  created_at: string;
+  last_sign_in_at: string | null;
+  banned_until: string | null;
+  email_confirmed_at: string | null;
+
+  ips: UserIp[];
 };
+
+type UserAction =
+  | "ban-user"
+  | "unban-user"
+  | "delete-user"
+  | "ban-ip"
+  | "unban-ip";
 
 export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const [users, setUsers] = useState<AdminUser[]>([]);
-  const [currentAdminId, setCurrentAdminId] = useState("");
 
   const [search, setSearch] = useState("");
+
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+
+  const [actionLoading, setActionLoading] =
+    useState<string | null>(null);
+
+  const [bannedIps, setBannedIps] =
+    useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadUsers();
   }, []);
-
-  async function getAccessToken() {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session?.access_token) {
-      window.location.href = "/admin";
-      return null;
-    }
-
-    return session.access_token;
-  }
-
-  async function loadUsers() {
-    setLoading(true);
-    setMessage("");
-    setErrorMessage("");
-
-    const token = await getAccessToken();
-
-    if (!token) {
-      return;
-    }
-
-    try {
-      const response = await fetch("/api/admin/users", {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        cache: "no-store",
-      });
-
-      const data = await response.json();
-
-      if (response.status === 401) {
-        window.location.href = "/admin";
-        return;
-      }
-
-      if (response.status === 403) {
-        setErrorMessage("Bu hesap admin yetkisine sahip değil.");
-        setLoading(false);
-        return;
-      }
-
-      if (!response.ok) {
-        setErrorMessage(
-          data?.error ?? "Kullanıcılar yüklenemedi."
-        );
-        setLoading(false);
-        return;
-      }
-
-      setUsers(data.users ?? []);
-      setCurrentAdminId(data.currentAdminId ?? "");
-    } catch (error) {
-      console.error(error);
-      setErrorMessage("Kullanıcılar yüklenirken hata oluştu.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function manageUser(
-    user: AdminUser,
-    action: "ban" | "unban" | "delete"
-  ) {
-    setMessage("");
-    setErrorMessage("");
-
-    if (user.id === currentAdminId) {
-      setErrorMessage("Kendi admin hesabını yönetemezsin.");
-      return;
-    }
-
-    if (user.isAdmin) {
-      setErrorMessage("Admin hesapları bu ekrandan yönetilemez.");
-      return;
-    }
-
-    if (action === "delete") {
-      const confirmed = window.confirm(
-        `${user.email ?? user.id} hesabını kalıcı olarak silmek istiyor musun?`
-      );
-
-      if (!confirmed) {
-        return;
-      }
-    }
-
-    if (action === "ban") {
-      const confirmed = window.confirm(
-        `${user.email ?? user.id} hesabını engellemek istiyor musun?`
-      );
-
-      if (!confirmed) {
-        return;
-      }
-    }
-
-    const token = await getAccessToken();
-
-    if (!token) {
-      return;
-    }
-
-    setActionLoading(`${user.id}:${action}`);
-
-    try {
-      const response = await fetch(
-        "/api/admin/users/manage",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            userId: user.id,
-            action,
-          }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setErrorMessage(
-          data?.error ?? "İşlem gerçekleştirilemedi."
-        );
-        return;
-      }
-
-      if (action === "delete") {
-        setUsers((current) =>
-          current.filter((item) => item.id !== user.id)
-        );
-
-        setMessage("Kullanıcı hesabı silindi.");
-        return;
-      }
-
-      setMessage(
-        action === "ban"
-          ? "Kullanıcı engellendi."
-          : "Kullanıcının engeli kaldırıldı."
-      );
-
-      await loadUsers();
-    } catch (error) {
-      console.error(error);
-      setErrorMessage("İşlem sırasında hata oluştu.");
-    } finally {
-      setActionLoading(null);
-    }
-  }
-
-  function isUserBanned(user: AdminUser) {
-    if (!user.bannedUntil) {
-      return false;
-    }
-
-    const bannedUntil = new Date(user.bannedUntil).getTime();
-
-    return Number.isFinite(bannedUntil) &&
-      bannedUntil > Date.now();
-  }
 
   const filteredUsers = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -207,18 +61,367 @@ export default function AdminUsersPage() {
     }
 
     return users.filter((user) => {
-      const email = user.email?.toLowerCase() ?? "";
-      const id = user.id.toLowerCase();
+      const searchable = [
+        user.email ?? "",
+        user.username ?? "",
+        user.display_name ?? "",
+        user.id,
+        ...user.ips.map(
+          (ip) => ip.ip_address
+        ),
+      ]
+        .join(" ")
+        .toLowerCase();
 
-      return email.includes(query) || id.includes(query);
+      return searchable.includes(query);
     });
   }, [users, search]);
+
+  async function getSessionToken() {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    return session?.access_token ?? null;
+  }
+
+  async function loadUsers() {
+    setLoading(true);
+    setMessage("");
+    setErrorMessage("");
+
+    const token = await getSessionToken();
+
+    if (!token) {
+      window.location.href = "/admin";
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        "/api/admin/users",
+        {
+          method: "GET",
+
+          headers: {
+            Authorization:
+              `Bearer ${token}`,
+          },
+
+          cache: "no-store",
+        }
+      );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        if (
+          response.status === 401 ||
+          response.status === 403
+        ) {
+          window.location.href =
+            "/admin";
+
+          return;
+        }
+
+        setErrorMessage(
+          data?.error ??
+            "Users could not be loaded."
+        );
+
+        setLoading(false);
+        return;
+      }
+
+      setUsers(
+        Array.isArray(data?.users)
+          ? data.users
+          : []
+      );
+
+      const serverBannedIps =
+        Array.isArray(
+          data?.banned_ips
+        )
+          ? data.banned_ips.filter(
+              (
+                ip: unknown
+              ): ip is string =>
+                typeof ip ===
+                  "string" &&
+                ip.length > 0
+            )
+          : [];
+
+      setBannedIps(
+        new Set(serverBannedIps)
+      );
+    } catch (error) {
+      console.error(error);
+
+      setErrorMessage(
+        "Users could not be loaded."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function isUserBanned(
+    bannedUntil: string | null
+  ) {
+    if (!bannedUntil) {
+      return false;
+    }
+
+    const time = new Date(
+      bannedUntil
+    ).getTime();
+
+    if (!Number.isFinite(time)) {
+      return false;
+    }
+
+    return time > Date.now();
+  }
+
+  async function manageUser(
+    action: UserAction,
+    options: {
+      userId?: string;
+      ipAddress?: string;
+      label?: string;
+    }
+  ) {
+    setMessage("");
+    setErrorMessage("");
+
+    const token =
+      await getSessionToken();
+
+    if (!token) {
+      setErrorMessage(
+        "Admin session expired."
+      );
+
+      return;
+    }
+
+    const actionKey =
+      action === "ban-ip" ||
+      action === "unban-ip"
+        ? `${action}:${options.ipAddress}`
+        : `${action}:${options.userId}`;
+
+    if (
+      action === "delete-user"
+    ) {
+      const confirmed =
+        window.confirm(
+          `Permanently delete ${
+            options.label ??
+            "this user"
+          }?\n\nThis cannot be undone.`
+        );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    if (action === "ban-user") {
+      const confirmed =
+        window.confirm(
+          `Ban ${
+            options.label ??
+            "this user"
+          } from signing in?`
+        );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    if (action === "ban-ip") {
+      const confirmed =
+        window.confirm(
+          `Ban IP address ${options.ipAddress}?`
+        );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    if (
+      action === "unban-ip"
+    ) {
+      const confirmed =
+        window.confirm(
+          `Remove the IP ban for ${options.ipAddress}?`
+        );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setActionLoading(
+      actionKey
+    );
+
+    try {
+      const response = await fetch(
+        "/api/admin/users/manage",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+
+            Authorization:
+              `Bearer ${token}`,
+          },
+
+          body: JSON.stringify({
+            action,
+
+            userId:
+              options.userId ??
+              null,
+
+            ipAddress:
+              options.ipAddress ??
+              null,
+          }),
+        }
+      );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        setErrorMessage(
+          data?.error ??
+            "Action could not be completed."
+        );
+
+        return;
+      }
+
+      if (
+        action === "delete-user"
+      ) {
+        setUsers((current) =>
+          current.filter(
+            (user) =>
+              user.id !==
+              options.userId
+          )
+        );
+
+        setMessage(
+          "User deleted successfully."
+        );
+
+        return;
+      }
+
+      if (action === "ban-ip") {
+        if (
+          options.ipAddress
+        ) {
+          setBannedIps(
+            (current) => {
+              const next =
+                new Set(current);
+
+              next.add(
+                options.ipAddress!
+              );
+
+              return next;
+            }
+          );
+        }
+
+        setMessage(
+          `IP ${options.ipAddress} banned.`
+        );
+
+        return;
+      }
+
+      if (
+        action === "unban-ip"
+      ) {
+        if (
+          options.ipAddress
+        ) {
+          setBannedIps(
+            (current) => {
+              const next =
+                new Set(current);
+
+              next.delete(
+                options.ipAddress!
+              );
+
+              return next;
+            }
+          );
+        }
+
+        setMessage(
+          `IP ${options.ipAddress} unbanned.`
+        );
+
+        return;
+      }
+
+      await loadUsers();
+
+      if (
+        action === "ban-user"
+      ) {
+        setMessage(
+          "User account banned."
+        );
+      }
+
+      if (
+        action === "unban-user"
+      ) {
+        setMessage(
+          "User account unbanned."
+        );
+      }
+    } catch (error) {
+      console.error(error);
+
+      setErrorMessage(
+        "Action could not be completed."
+      );
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+
+    window.location.href = "/";
+  }
 
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50">
         <div className="font-black text-violet-600">
-          Kullanıcılar yükleniyor...
+          Loading users...
         </div>
       </main>
     );
@@ -227,23 +430,21 @@ export default function AdminUsersPage() {
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-5">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <a href="/">
-              <div className="text-2xl font-black">
-                WEWANT
-                <span className="text-violet-600">
-                  AGAIN
-                </span>
-              </div>
-            </a>
+            <div className="text-2xl font-black">
+              WEWANT
+              <span className="text-violet-600">
+                AGAIN
+              </span>
+            </div>
 
             <div className="text-xs font-bold tracking-widest text-slate-400">
               ADMIN / USERS
             </div>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <a
               href="/admin"
               className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold hover:border-violet-300"
@@ -257,45 +458,57 @@ export default function AdminUsersPage() {
             >
               Website
             </a>
+
+            <button
+              type="button"
+              onClick={
+                handleLogout
+              }
+              className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100"
+            >
+              Sign out
+            </button>
           </div>
         </div>
       </header>
 
       <section className="mx-auto max-w-7xl px-5 py-10">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="inline-flex rounded-full bg-violet-100 px-4 py-2 text-sm font-black text-violet-700">
               👥 {users.length} USERS
             </div>
 
             <h1 className="mt-4 text-4xl font-black">
-              User Management
+              User management
             </h1>
 
             <p className="mt-2 text-slate-500">
-              Kullanıcı hesaplarını görüntüle, engelle veya sil.
+              Manage accounts and review
+              recorded account IP history.
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={loadUsers}
-            className="rounded-xl border border-slate-200 bg-white px-5 py-3 font-black hover:border-violet-300"
-          >
-            ↻ Refresh
-          </button>
-        </div>
+          <div className="w-full lg:max-w-md">
+            <label className="text-xs font-black uppercase tracking-wide text-slate-400">
+              Search users
+            </label>
 
-        <div className="mt-8">
-          <input
-            type="search"
-            value={search}
-            onChange={(event) =>
-              setSearch(event.target.value)
-            }
-            placeholder="Email veya User ID ara..."
-            className="w-full rounded-2xl border border-slate-200 bg-white px-5 py-4 outline-none focus:border-violet-500"
-          />
+            <input
+              type="search"
+              value={search}
+              onChange={(
+                event
+              ) =>
+                setSearch(
+                  event.target
+                    .value
+                )
+              }
+              placeholder="Email, username, user ID or IP..."
+              className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-4 outline-none focus:border-violet-500"
+            />
+          </div>
         </div>
 
         {message && (
@@ -310,184 +523,421 @@ export default function AdminUsersPage() {
           </div>
         )}
 
-        <div className="mt-8 space-y-4">
-          {filteredUsers.length === 0 ? (
-            <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center text-slate-500">
-              Kullanıcı bulunamadı.
-            </div>
-          ) : (
-            filteredUsers.map((user) => {
-              const banned = isUserBanned(user);
-
-              return (
-                <article
-                  key={user.id}
-                  className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
-                >
-                  <div className="flex flex-col gap-6 xl:flex-row xl:items-center xl:justify-between">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {user.isAdmin && (
-                          <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-black text-violet-700">
-                            ADMIN
-                          </span>
-                        )}
-
-                        {banned ? (
-                          <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-black text-red-700">
-                            BANNED
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-black text-green-700">
-                            ACTIVE
-                          </span>
-                        )}
-
-                        {user.emailConfirmedAt ? (
-                          <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-black text-blue-700">
-                            VERIFIED
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-700">
-                            EMAIL NOT VERIFIED
-                          </span>
-                        )}
-                      </div>
-
-                      <h2 className="mt-4 break-all text-xl font-black">
-                        {user.email ?? "No email"}
-                      </h2>
-
-                      <div className="mt-3 break-all rounded-xl bg-slate-50 p-3 font-mono text-xs text-slate-500">
-                        {user.id}
-                      </div>
-
-                      <div className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
-                        <div className="rounded-xl bg-slate-50 p-3">
-                          <div className="text-xs font-bold text-slate-400">
-                            CREATED
-                          </div>
-
-                          <div className="mt-1 font-bold">
-                            {new Date(
-                              user.createdAt
-                            ).toLocaleString()}
-                          </div>
-                        </div>
-
-                        <div className="rounded-xl bg-slate-50 p-3">
-                          <div className="text-xs font-bold text-slate-400">
-                            LAST SIGN IN
-                          </div>
-
-                          <div className="mt-1 font-bold">
-                            {user.lastSignInAt
-                              ? new Date(
-                                  user.lastSignInAt
-                                ).toLocaleString()
-                              : "—"}
-                          </div>
-                        </div>
-
-                        <div className="rounded-xl bg-slate-50 p-3">
-                          <div className="text-xs font-bold text-slate-400">
-                            PROVIDER
-                          </div>
-
-                          <div className="mt-1 font-bold">
-                            {user.providers.length > 0
-                              ? user.providers.join(", ")
-                              : "email"}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid w-full gap-3 sm:grid-cols-2 xl:w-60 xl:grid-cols-1">
-                      {!user.isAdmin &&
-                        user.id !== currentAdminId && (
-                          <>
-                            {banned ? (
-                              <button
-                                type="button"
-                                disabled={
-                                  actionLoading !== null
-                                }
-                                onClick={() =>
-                                  manageUser(
-                                    user,
-                                    "unban"
-                                  )
-                                }
-                                className="rounded-xl bg-green-600 px-5 py-4 font-black text-white hover:bg-green-700 disabled:opacity-50"
-                              >
-                                {actionLoading ===
-                                `${user.id}:unban`
-                                  ? "WAIT..."
-                                  : "UNBAN"}
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                disabled={
-                                  actionLoading !== null
-                                }
-                                onClick={() =>
-                                  manageUser(
-                                    user,
-                                    "ban"
-                                  )
-                                }
-                                className="rounded-xl bg-amber-500 px-5 py-4 font-black text-white hover:bg-amber-600 disabled:opacity-50"
-                              >
-                                {actionLoading ===
-                                `${user.id}:ban`
-                                  ? "WAIT..."
-                                  : "BAN USER"}
-                              </button>
-                            )}
-
-                            <button
-                              type="button"
-                              disabled={
-                                actionLoading !== null
-                              }
-                              onClick={() =>
-                                manageUser(
-                                  user,
-                                  "delete"
-                                )
-                              }
-                              className="rounded-xl bg-red-50 px-5 py-4 font-black text-red-700 hover:bg-red-100 disabled:opacity-50"
-                            >
-                              {actionLoading ===
-                              `${user.id}:delete`
-                                ? "DELETING..."
-                                : "DELETE ACCOUNT"}
-                            </button>
-                          </>
-                        )}
-
-                      {user.id === currentAdminId && (
-                        <div className="rounded-xl bg-violet-50 p-4 text-center text-sm font-black text-violet-700">
-                          YOUR ADMIN ACCOUNT
-                        </div>
-                      )}
-
-                      {user.isAdmin &&
-                        user.id !== currentAdminId && (
-                          <div className="rounded-xl bg-violet-50 p-4 text-center text-sm font-black text-violet-700">
-                            PROTECTED ADMIN
-                          </div>
-                        )}
-                    </div>
-                  </div>
-                </article>
-              );
-            })
-          )}
+        <div className="mt-8 text-sm font-bold text-slate-500">
+          Showing{" "}
+          {
+            filteredUsers.length
+          }{" "}
+          of {users.length} users
         </div>
+
+        {filteredUsers.length ===
+        0 ? (
+          <div className="mt-6 rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
+            <div className="text-4xl">
+              🔎
+            </div>
+
+            <h2 className="mt-4 text-2xl font-black">
+              No users found
+            </h2>
+          </div>
+        ) : (
+          <div className="mt-6 space-y-5">
+            {filteredUsers.map(
+              (user) => {
+                const banned =
+                  isUserBanned(
+                    user.banned_until
+                  );
+
+                return (
+                  <article
+                    key={
+                      user.id
+                    }
+                    className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
+                  >
+                    <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {user.is_admin && (
+                            <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-black text-violet-700">
+                              ADMIN
+                            </span>
+                          )}
+
+                          {banned ? (
+                            <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-black text-red-700">
+                              BANNED
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-black text-green-700">
+                              ACTIVE
+                            </span>
+                          )}
+
+                          {user.email_confirmed_at ? (
+                            <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-black text-blue-700">
+                              EMAIL VERIFIED
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-700">
+                              EMAIL UNVERIFIED
+                            </span>
+                          )}
+                        </div>
+
+                        <h2 className="mt-4 break-all text-2xl font-black">
+                          {user.display_name ||
+                            user.username ||
+                            user.email ||
+                            "User"}
+                        </h2>
+
+                        {user.username && (
+                          <div className="mt-1 font-bold text-violet-600">
+                            @
+                            {
+                              user.username
+                            }
+                          </div>
+                        )}
+
+                        <div className="mt-2 break-all text-sm text-slate-500">
+                          {user.email ??
+                            "No email"}
+                        </div>
+
+                        <div className="mt-6 grid gap-3 md:grid-cols-2">
+                          <InfoBox
+                            title="User ID"
+                            value={
+                              user.id
+                            }
+                            mono
+                          />
+
+                          <InfoBox
+                            title="Created"
+                            value={formatDate(
+                              user.created_at
+                            )}
+                          />
+
+                          <InfoBox
+                            title="Last sign in"
+                            value={
+                              user.last_sign_in_at
+                                ? formatDate(
+                                    user.last_sign_in_at
+                                  )
+                                : "Never"
+                            }
+                          />
+
+                          <InfoBox
+                            title="IP addresses"
+                            value={String(
+                              user.ips
+                                .length
+                            )}
+                          />
+                        </div>
+
+                        <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <h3 className="font-black">
+                                IP history
+                              </h3>
+
+                              <p className="mt-1 text-xs text-slate-500">
+                                IP addresses
+                                recorded while
+                                this account was
+                                signed in.
+                              </p>
+                            </div>
+
+                            <div className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-500">
+                              {
+                                user.ips
+                                  .length
+                              }{" "}
+                              recorded
+                            </div>
+                          </div>
+
+                          {user.ips
+                            .length ===
+                          0 ? (
+                            <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-5 text-center text-sm text-slate-500">
+                              No IP address has
+                              been recorded for
+                              this account yet.
+                            </div>
+                          ) : (
+                            <div className="mt-4 space-y-3">
+                              {user.ips.map(
+                                (
+                                  ip
+                                ) => {
+                                  const ipIsBanned =
+                                    bannedIps.has(
+                                      ip.ip_address
+                                    );
+
+                                  return (
+                                    <div
+                                      key={
+                                        ip.id
+                                      }
+                                      className="rounded-xl border border-slate-200 bg-white p-4"
+                                    >
+                                      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                                        <div className="min-w-0">
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <code className="break-all rounded-lg bg-slate-100 px-3 py-2 text-sm font-black text-slate-800">
+                                              {
+                                                ip.ip_address
+                                              }
+                                            </code>
+
+                                            {ipIsBanned && (
+                                              <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-black text-red-700">
+                                                IP
+                                                BANNED
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          <div className="mt-3 grid gap-1 text-xs text-slate-500 sm:grid-cols-2 sm:gap-5">
+                                            <div>
+                                              First
+                                              seen:{" "}
+                                              {formatDate(
+                                                ip.first_seen_at
+                                              )}
+                                            </div>
+
+                                            <div>
+                                              Last
+                                              seen:{" "}
+                                              {formatDate(
+                                                ip.last_seen_at
+                                              )}
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-2">
+                                          {!ipIsBanned ? (
+                                            <button
+                                              type="button"
+                                              disabled={
+                                                actionLoading !==
+                                                null
+                                              }
+                                              onClick={() =>
+                                                manageUser(
+                                                  "ban-ip",
+                                                  {
+                                                    ipAddress:
+                                                      ip.ip_address,
+                                                  }
+                                                )
+                                              }
+                                              className="rounded-xl bg-red-50 px-4 py-3 text-sm font-black text-red-700 hover:bg-red-100 disabled:opacity-50"
+                                            >
+                                              {actionLoading ===
+                                              `ban-ip:${ip.ip_address}`
+                                                ? "BANNING..."
+                                                : "BAN IP"}
+                                            </button>
+                                          ) : (
+                                            <button
+                                              type="button"
+                                              disabled={
+                                                actionLoading !==
+                                                null
+                                              }
+                                              onClick={() =>
+                                                manageUser(
+                                                  "unban-ip",
+                                                  {
+                                                    ipAddress:
+                                                      ip.ip_address,
+                                                  }
+                                                )
+                                              }
+                                              className="rounded-xl bg-green-50 px-4 py-3 text-sm font-black text-green-700 hover:bg-green-100 disabled:opacity-50"
+                                            >
+                                              {actionLoading ===
+                                              `unban-ip:${ip.ip_address}`
+                                                ? "REMOVING..."
+                                                : "UNBAN IP"}
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                }
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid w-full gap-3 sm:grid-cols-2 xl:w-56 xl:grid-cols-1">
+                        {banned ? (
+                          <button
+                            type="button"
+                            disabled={
+                              actionLoading !==
+                              null
+                            }
+                            onClick={() =>
+                              manageUser(
+                                "unban-user",
+                                {
+                                  userId:
+                                    user.id,
+
+                                  label:
+                                    user.email ??
+                                    user.id,
+                                }
+                              )
+                            }
+                            className="rounded-xl bg-green-600 px-5 py-4 font-black text-white hover:bg-green-700 disabled:opacity-50"
+                          >
+                            {actionLoading ===
+                            `unban-user:${user.id}`
+                              ? "WAIT..."
+                              : "UNBAN USER"}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={
+                              actionLoading !==
+                                null ||
+                              user.is_admin
+                            }
+                            onClick={() =>
+                              manageUser(
+                                "ban-user",
+                                {
+                                  userId:
+                                    user.id,
+
+                                  label:
+                                    user.email ??
+                                    user.id,
+                                }
+                              )
+                            }
+                            className="rounded-xl bg-amber-50 px-5 py-4 font-black text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {actionLoading ===
+                            `ban-user:${user.id}`
+                              ? "WAIT..."
+                              : user.is_admin
+                              ? "ADMIN ACCOUNT"
+                              : "BAN USER"}
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          disabled={
+                            actionLoading !==
+                              null ||
+                            user.is_admin
+                          }
+                          onClick={() =>
+                            manageUser(
+                              "delete-user",
+                              {
+                                userId:
+                                  user.id,
+
+                                label:
+                                  user.email ??
+                                  user.id,
+                              }
+                            )
+                          }
+                          className="rounded-xl bg-red-600 px-5 py-4 font-black text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {actionLoading ===
+                          `delete-user:${user.id}`
+                            ? "DELETING..."
+                            : user.is_admin
+                            ? "ADMIN PROTECTED"
+                            : "DELETE USER"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            navigator.clipboard.writeText(
+                              user.id
+                            )
+                          }
+                          className="rounded-xl border border-slate-200 px-5 py-4 font-black hover:border-violet-300 hover:text-violet-600"
+                        >
+                          COPY USER ID
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              }
+            )}
+          </div>
+        )}
       </section>
     </main>
   );
+}
+
+function InfoBox({
+  title,
+  value,
+  mono = false,
+}: {
+  title: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="rounded-xl bg-slate-50 p-4">
+      <div className="text-xs font-black uppercase tracking-wide text-slate-400">
+        {title}
+      </div>
+
+      <div
+        className={`mt-2 break-all text-sm font-bold ${
+          mono ? "font-mono" : ""
+        }`}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function formatDate(
+  value: string
+) {
+  try {
+    return new Date(
+      value
+    ).toLocaleString();
+  } catch {
+    return value;
+  }
 }
