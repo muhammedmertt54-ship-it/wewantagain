@@ -6,10 +6,14 @@ type UserAction =
   | "unban-user"
   | "delete-user"
   | "ban-ip"
-  | "unban-ip";
+  | "unban-ip"
+  | "force-logout"
+  | "make-admin"
+  | "remove-admin";
 
 async function requireAdmin(request: NextRequest) {
-  const authorization = request.headers.get("authorization");
+  const authorization =
+    request.headers.get("authorization");
 
   if (!authorization?.startsWith("Bearer ")) {
     return {
@@ -36,12 +40,14 @@ async function requireAdmin(request: NextRequest) {
     };
   }
 
-  const { data: adminRow, error: adminError } =
-    await supabaseAdmin
-      .from("admins")
-      .select("user_id")
-      .eq("user_id", user.id)
-      .maybeSingle();
+  const {
+    data: adminRow,
+    error: adminError,
+  } = await supabaseAdmin
+    .from("admins")
+    .select("user_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
 
   if (adminError || !adminRow) {
     return {
@@ -57,9 +63,38 @@ async function requireAdmin(request: NextRequest) {
   };
 }
 
+async function writeAuditLog({
+  adminUserId,
+  targetUserId,
+  action,
+  details,
+}: {
+  adminUserId: string;
+  targetUserId?: string | null;
+  action: string;
+  details?: Record<string, unknown>;
+}) {
+  const { error } = await supabaseAdmin
+    .from("admin_audit_logs")
+    .insert({
+      admin_user_id: adminUserId,
+      target_user_id: targetUserId ?? null,
+      action,
+      details: details ?? null,
+    });
+
+  if (error) {
+    console.error(
+      "Audit log error:",
+      error
+    );
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const auth = await requireAdmin(request);
+    const auth =
+      await requireAdmin(request);
 
     if ("error" in auth) {
       return auth.error;
@@ -82,6 +117,11 @@ export async function POST(request: NextRequest) {
         ? body.ipAddress.trim()
         : "";
 
+    const reason =
+      typeof body?.reason === "string"
+        ? body.reason.trim()
+        : "";
+
     if (
       !action ||
       ![
@@ -90,6 +130,9 @@ export async function POST(request: NextRequest) {
         "delete-user",
         "ban-ip",
         "unban-ip",
+        "force-logout",
+        "make-admin",
+        "remove-admin",
       ].includes(action)
     ) {
       return NextResponse.json(
@@ -98,11 +141,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // USER BAN
+    // BAN USER
     if (action === "ban-user") {
       if (!userId) {
         return NextResponse.json(
-          { error: "User ID is required." },
+          {
+            error:
+              "User ID is required.",
+          },
           { status: 400 }
         );
       }
@@ -119,7 +165,7 @@ export async function POST(request: NextRequest) {
 
       const {
         data: bannedUser,
-        error: banUserError,
+        error: banError,
       } =
         await supabaseAdmin.auth.admin.updateUserById(
           userId,
@@ -128,45 +174,57 @@ export async function POST(request: NextRequest) {
           }
         );
 
-      if (banUserError) {
+      if (banError) {
         console.error(
           "User ban error:",
-          banUserError
+          banError
         );
 
         return NextResponse.json(
           {
-            error: "User could not be banned.",
-            details: banUserError.message,
+            error:
+              "User could not be banned.",
+            details:
+              banError.message,
           },
           { status: 500 }
         );
       }
 
-      console.log(
-        "USER BAN SUCCESS:",
-        bannedUser.user?.id
-      );
+      await writeAuditLog({
+        adminUserId: auth.user.id,
+        targetUserId: userId,
+        action: "ban-user",
+        details: {
+          reason:
+            reason || null,
+          banned_until:
+            bannedUser.user
+              ?.banned_until ??
+            null,
+        },
+      });
 
       return NextResponse.json({
         success: true,
         action: "ban-user",
-        userId,
       });
     }
 
-    // USER UNBAN
+    // UNBAN USER
     if (action === "unban-user") {
       if (!userId) {
         return NextResponse.json(
-          { error: "User ID is required." },
+          {
+            error:
+              "User ID is required.",
+          },
           { status: 400 }
         );
       }
 
       const {
-        data: unbannedUser,
-        error: unbanUserError,
+        error: unbanError,
       } =
         await supabaseAdmin.auth.admin.updateUserById(
           userId,
@@ -175,10 +233,10 @@ export async function POST(request: NextRequest) {
           }
         );
 
-      if (unbanUserError) {
+      if (unbanError) {
         console.error(
           "User unban error:",
-          unbanUserError
+          unbanError
         );
 
         return NextResponse.json(
@@ -186,29 +244,32 @@ export async function POST(request: NextRequest) {
             error:
               "User could not be unbanned.",
             details:
-              unbanUserError.message,
+              unbanError.message,
           },
           { status: 500 }
         );
       }
 
-      console.log(
-        "USER UNBAN SUCCESS:",
-        unbannedUser.user?.id
-      );
+      await writeAuditLog({
+        adminUserId: auth.user.id,
+        targetUserId: userId,
+        action: "unban-user",
+      });
 
       return NextResponse.json({
         success: true,
         action: "unban-user",
-        userId,
       });
     }
 
-    // USER DELETE
+    // DELETE USER
     if (action === "delete-user") {
       if (!userId) {
         return NextResponse.json(
-          { error: "User ID is required." },
+          {
+            error:
+              "User ID is required.",
+          },
           { status: 400 }
         );
       }
@@ -223,18 +284,23 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      await writeAuditLog({
+        adminUserId: auth.user.id,
+        targetUserId: userId,
+        action: "delete-user",
+      });
+
       const {
-        data: deletedUser,
-        error: deleteUserError,
+        error: deleteError,
       } =
         await supabaseAdmin.auth.admin.deleteUser(
           userId
         );
 
-      if (deleteUserError) {
+      if (deleteError) {
         console.error(
           "User delete error:",
-          deleteUserError
+          deleteError
         );
 
         return NextResponse.json(
@@ -242,25 +308,190 @@ export async function POST(request: NextRequest) {
             error:
               "User could not be deleted.",
             details:
-              deleteUserError.message,
+              deleteError.message,
           },
           { status: 500 }
         );
       }
 
-      console.log(
-        "USER DELETE SUCCESS:",
-        deletedUser
-      );
-
       return NextResponse.json({
         success: true,
         action: "delete-user",
-        userId,
       });
     }
 
-    // IP BAN
+    // FORCE LOGOUT
+    if (action === "force-logout") {
+      if (!userId) {
+        return NextResponse.json(
+          {
+            error:
+              "User ID is required.",
+          },
+          { status: 400 }
+        );
+      }
+
+      if (userId === auth.user.id) {
+        return NextResponse.json(
+          {
+            error:
+              "You cannot force logout your own admin account.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const {
+        error: sessionDeleteError,
+      } = await supabaseAdmin
+        .schema("auth")
+        .from("sessions")
+        .delete()
+        .eq("user_id", userId);
+
+      if (sessionDeleteError) {
+        console.error(
+          "Force logout error:",
+          sessionDeleteError
+        );
+
+        return NextResponse.json(
+          {
+            error:
+              "User sessions could not be ended.",
+            details:
+              sessionDeleteError.message,
+          },
+          { status: 500 }
+        );
+      }
+
+      await writeAuditLog({
+        adminUserId: auth.user.id,
+        targetUserId: userId,
+        action: "force-logout",
+      });
+
+      return NextResponse.json({
+        success: true,
+        action: "force-logout",
+      });
+    }
+
+    // MAKE ADMIN
+    if (action === "make-admin") {
+      if (!userId) {
+        return NextResponse.json(
+          {
+            error:
+              "User ID is required.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const {
+        error: makeAdminError,
+      } = await supabaseAdmin
+        .from("admins")
+        .upsert(
+          {
+            user_id: userId,
+          },
+          {
+            onConflict: "user_id",
+          }
+        );
+
+      if (makeAdminError) {
+        console.error(
+          "Make admin error:",
+          makeAdminError
+        );
+
+        return NextResponse.json(
+          {
+            error:
+              "Admin permission could not be granted.",
+            details:
+              makeAdminError.message,
+          },
+          { status: 500 }
+        );
+      }
+
+      await writeAuditLog({
+        adminUserId: auth.user.id,
+        targetUserId: userId,
+        action: "make-admin",
+      });
+
+      return NextResponse.json({
+        success: true,
+        action: "make-admin",
+      });
+    }
+
+    // REMOVE ADMIN
+    if (action === "remove-admin") {
+      if (!userId) {
+        return NextResponse.json(
+          {
+            error:
+              "User ID is required.",
+          },
+          { status: 400 }
+        );
+      }
+
+      if (userId === auth.user.id) {
+        return NextResponse.json(
+          {
+            error:
+              "You cannot remove your own admin permission.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const {
+        error: removeAdminError,
+      } = await supabaseAdmin
+        .from("admins")
+        .delete()
+        .eq("user_id", userId);
+
+      if (removeAdminError) {
+        console.error(
+          "Remove admin error:",
+          removeAdminError
+        );
+
+        return NextResponse.json(
+          {
+            error:
+              "Admin permission could not be removed.",
+            details:
+              removeAdminError.message,
+          },
+          { status: 500 }
+        );
+      }
+
+      await writeAuditLog({
+        adminUserId: auth.user.id,
+        targetUserId: userId,
+        action: "remove-admin",
+      });
+
+      return NextResponse.json({
+        success: true,
+        action: "remove-admin",
+      });
+    }
+
+    // BAN IP
     if (action === "ban-ip") {
       if (!ipAddress) {
         return NextResponse.json(
@@ -280,16 +511,14 @@ export async function POST(request: NextRequest) {
         .upsert(
           {
             ip_address: ipAddress,
-
             reason:
-              typeof body?.reason === "string"
-                ? body.reason.trim() || null
-                : null,
-
-            banned_by: auth.user.id,
+              reason || null,
+            banned_by:
+              auth.user.id,
           },
           {
-            onConflict: "ip_address",
+            onConflict:
+              "ip_address",
           }
         )
         .select(
@@ -307,10 +536,8 @@ export async function POST(request: NextRequest) {
           {
             error:
               "IP address could not be banned.",
-
             details:
               banIpError.message,
-
             code:
               banIpError.code,
           },
@@ -319,38 +546,37 @@ export async function POST(request: NextRequest) {
       }
 
       if (!bannedIp) {
-        console.error(
-          "IP ban failed: no row returned.",
-          { ipAddress }
-        );
-
         return NextResponse.json(
           {
             error:
-              "IP ban was not saved to the database.",
+              "IP ban was not saved.",
           },
           { status: 500 }
         );
       }
 
-      console.log(
-        "IP BAN SUCCESS:",
-        bannedIp
-      );
+      await writeAuditLog({
+        adminUserId: auth.user.id,
+        targetUserId:
+          userId || null,
+        action: "ban-ip",
+        details: {
+          ip_address:
+            bannedIp.ip_address,
+          reason:
+            reason || null,
+        },
+      });
 
       return NextResponse.json({
         success: true,
         action: "ban-ip",
-
         ipAddress:
           bannedIp.ip_address,
-
-        banId:
-          bannedIp.id,
       });
     }
 
-    // IP UNBAN
+    // UNBAN IP
     if (action === "unban-ip") {
       if (!ipAddress) {
         return NextResponse.json(
@@ -386,10 +612,8 @@ export async function POST(request: NextRequest) {
           {
             error:
               "IP address could not be unbanned.",
-
             details:
               unbanIpError.message,
-
             code:
               unbanIpError.code,
           },
@@ -397,23 +621,24 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const removed =
-        (deletedIps?.length ?? 0) > 0;
-
-      console.log(
-        "IP UNBAN RESULT:",
-        {
-          ipAddress,
-          removed,
-          deletedIps,
-        }
-      );
+      await writeAuditLog({
+        adminUserId: auth.user.id,
+        targetUserId:
+          userId || null,
+        action: "unban-ip",
+        details: {
+          ip_address:
+            ipAddress,
+          removed:
+            (deletedIps?.length ??
+              0) > 0,
+        },
+      });
 
       return NextResponse.json({
         success: true,
         action: "unban-ip",
         ipAddress,
-        removed,
       });
     }
 

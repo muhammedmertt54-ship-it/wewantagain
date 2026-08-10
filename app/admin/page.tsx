@@ -3,8 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
-type CampaignStatus = "pending" | "active" | "rejected";
-type FilterStatus = "all" | CampaignStatus;
+type CampaignStatus =
+  | "pending"
+  | "active"
+  | "rejected";
+
+type FilterStatus =
+  | "all"
+  | CampaignStatus;
 
 type Campaign = {
   id: number;
@@ -23,50 +29,97 @@ type Campaign = {
 };
 
 export default function AdminPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] =
+    useState("");
 
-  const [loading, setLoading] = useState(true);
-  const [loginLoading, setLoginLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [password, setPassword] =
+    useState("");
 
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] =
+    useState(true);
 
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [filter, setFilter] = useState<FilterStatus>("pending");
+  const [
+    loginLoading,
+    setLoginLoading,
+  ] = useState(false);
 
-  const [message, setMessage] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
+  const [
+    actionLoading,
+    setActionLoading,
+  ] = useState<string | null>(
+    null
+  );
+
+  const [
+    isLoggedIn,
+    setIsLoggedIn,
+  ] = useState(false);
+
+  const [isAdmin, setIsAdmin] =
+    useState(false);
+
+  const [
+    campaigns,
+    setCampaigns,
+  ] = useState<Campaign[]>([]);
+
+  const [filter, setFilter] =
+    useState<FilterStatus>(
+      "pending"
+    );
+
+  const [message, setMessage] =
+    useState("");
+
+  const [
+    errorMessage,
+    setErrorMessage,
+  ] = useState("");
 
   useEffect(() => {
     checkSession();
   }, []);
 
-  const filteredCampaigns = useMemo(() => {
-    if (filter === "all") {
-      return campaigns;
-    }
+  const filteredCampaigns =
+    useMemo(() => {
+      if (filter === "all") {
+        return campaigns;
+      }
 
-    return campaigns.filter(
-      (campaign) => campaign.status === filter
-    );
-  }, [campaigns, filter]);
+      return campaigns.filter(
+        (campaign) =>
+          campaign.status ===
+          filter
+      );
+    }, [campaigns, filter]);
 
-  const counts = useMemo(() => {
-    return {
-      all: campaigns.length,
-      pending: campaigns.filter(
-        (campaign) => campaign.status === "pending"
-      ).length,
-      active: campaigns.filter(
-        (campaign) => campaign.status === "active"
-      ).length,
-      rejected: campaigns.filter(
-        (campaign) => campaign.status === "rejected"
-      ).length,
-    };
-  }, [campaigns]);
+  const counts =
+    useMemo(() => {
+      return {
+        all: campaigns.length,
+
+        pending:
+          campaigns.filter(
+            (campaign) =>
+              campaign.status ===
+              "pending"
+          ).length,
+
+        active:
+          campaigns.filter(
+            (campaign) =>
+              campaign.status ===
+              "active"
+          ).length,
+
+        rejected:
+          campaigns.filter(
+            (campaign) =>
+              campaign.status ===
+              "rejected"
+          ).length,
+      };
+    }, [campaigns]);
 
   async function checkSession() {
     setLoading(true);
@@ -75,27 +128,38 @@ export default function AdminPage() {
 
     const {
       data: { session },
-    } = await supabase.auth.getSession();
+    } =
+      await supabase.auth.getSession();
 
     if (!session?.user) {
       setIsLoggedIn(false);
       setIsAdmin(false);
       setLoading(false);
+
       return;
     }
 
     setIsLoggedIn(true);
 
-    const { data: adminRow, error: adminError } =
-      await supabase
-        .from("admins")
-        .select("user_id")
-        .eq("user_id", session.user.id)
-        .maybeSingle();
+    const {
+      data: adminRow,
+      error: adminError,
+    } = await supabase
+      .from("admins")
+      .select("user_id")
+      .eq(
+        "user_id",
+        session.user.id
+      )
+      .maybeSingle();
 
-    if (adminError || !adminRow) {
+    if (
+      adminError ||
+      !adminRow
+    ) {
       setIsAdmin(false);
       setLoading(false);
+
       return;
     }
 
@@ -116,10 +180,16 @@ export default function AdminPage() {
     setLoginLoading(true);
 
     const { error } =
-      await supabase.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
-        password,
-      });
+      await supabase.auth.signInWithPassword(
+        {
+          email:
+            email
+              .trim()
+              .toLowerCase(),
+
+          password,
+        }
+      );
 
     if (error) {
       console.error(error);
@@ -129,6 +199,7 @@ export default function AdminPage() {
       );
 
       setLoginLoading(false);
+
       return;
     }
 
@@ -138,7 +209,10 @@ export default function AdminPage() {
   }
 
   async function loadCampaigns() {
-    const { data, error } = await supabase
+    const {
+      data,
+      error,
+    } = await supabase
       .from("campaigns")
       .select(
         "id, slug, title, subtitle, category, target, description, goal, status, created_at, image_url, image_path, image_removed"
@@ -157,7 +231,9 @@ export default function AdminPage() {
       return;
     }
 
-    setCampaigns((data ?? []) as Campaign[]);
+    setCampaigns(
+      (data ?? []) as Campaign[]
+    );
   }
 
   async function updateCampaignStatus(
@@ -170,13 +246,15 @@ export default function AdminPage() {
     const label =
       newStatus === "active"
         ? "approve"
-        : newStatus === "rejected"
+        : newStatus ===
+            "rejected"
         ? "reject"
         : "move back to pending";
 
-    const confirmed = window.confirm(
-      `Are you sure you want to ${label} "${campaign.title}"?`
-    );
+    const confirmed =
+      window.confirm(
+        `Are you sure you want to ${label} "${campaign.title}"?`
+      );
 
     if (!confirmed) {
       return;
@@ -186,12 +264,16 @@ export default function AdminPage() {
       `${campaign.id}:status:${newStatus}`
     );
 
-    const { error } = await supabase
-      .from("campaigns")
-      .update({
-        status: newStatus,
-      })
-      .eq("id", campaign.id);
+    const { error } =
+      await supabase
+        .from("campaigns")
+        .update({
+          status: newStatus,
+        })
+        .eq(
+          "id",
+          campaign.id
+        );
 
     setActionLoading(null);
 
@@ -205,21 +287,32 @@ export default function AdminPage() {
       return;
     }
 
-    setCampaigns((current) =>
-      current.map((item) =>
-        item.id === campaign.id
-          ? {
-              ...item,
-              status: newStatus,
-            }
-          : item
-      )
+    setCampaigns(
+      (current) =>
+        current.map((item) =>
+          item.id ===
+          campaign.id
+            ? {
+                ...item,
+                status:
+                  newStatus,
+              }
+            : item
+        )
     );
 
-    if (newStatus === "active") {
-      setMessage("Campaign approved.");
-    } else if (newStatus === "rejected") {
-      setMessage("Campaign rejected.");
+    if (
+      newStatus === "active"
+    ) {
+      setMessage(
+        "Campaign approved."
+      );
+    } else if (
+      newStatus === "rejected"
+    ) {
+      setMessage(
+        "Campaign rejected."
+      );
     } else {
       setMessage(
         "Campaign moved back to pending."
@@ -230,39 +323,53 @@ export default function AdminPage() {
   async function getAccessToken() {
     const {
       data: { session },
-    } = await supabase.auth.getSession();
+    } =
+      await supabase.auth.getSession();
 
-    return session?.access_token ?? null;
+    return (
+      session?.access_token ??
+      null
+    );
   }
 
   async function manageCampaign(
     campaign: Campaign,
-    action: "remove-image" | "delete"
+    action:
+      | "remove-image"
+      | "delete"
   ) {
     setMessage("");
     setErrorMessage("");
 
-    if (action === "remove-image") {
-      const confirmed = window.confirm(
-        `Remove the image from "${campaign.title}"?`
-      );
+    if (
+      action ===
+      "remove-image"
+    ) {
+      const confirmed =
+        window.confirm(
+          `Remove the image from "${campaign.title}"?`
+        );
 
       if (!confirmed) {
         return;
       }
     }
 
-    if (action === "delete") {
-      const confirmed = window.confirm(
-        `Permanently delete "${campaign.title}"?\n\nThis will also delete its support records and stored image.`
-      );
+    if (
+      action === "delete"
+    ) {
+      const confirmed =
+        window.confirm(
+          `Permanently delete "${campaign.title}"?\n\nThis will also delete its support records and stored image.`
+        );
 
       if (!confirmed) {
         return;
       }
     }
 
-    const token = await getAccessToken();
+    const token =
+      await getAccessToken();
 
     if (!token) {
       setErrorMessage(
@@ -277,26 +384,39 @@ export default function AdminPage() {
     );
 
     try {
-      const response = await fetch(
-        "/api/admin/campaigns/manage",
-        {
-          method: "POST",
+      const response =
+        await fetch(
+          "/api/admin/campaigns/manage",
+          {
+            method:
+              "POST",
 
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
+            headers: {
+              "Content-Type":
+                "application/json",
 
-          body: JSON.stringify({
-            campaignId: campaign.id,
-            action,
-          }),
-        }
-      );
+              Authorization:
+                `Bearer ${token}`,
+            },
 
-      const data = await response.json();
+            body:
+              JSON.stringify(
+                {
+                  campaignId:
+                    campaign.id,
 
-      if (!response.ok) {
+                  action,
+                }
+              ),
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (
+        !response.ok
+      ) {
         setErrorMessage(
           data?.error ??
             "Campaign action failed."
@@ -305,12 +425,17 @@ export default function AdminPage() {
         return;
       }
 
-      if (action === "delete") {
-        setCampaigns((current) =>
-          current.filter(
-            (item) =>
-              item.id !== campaign.id
-          )
+      if (
+        action ===
+        "delete"
+      ) {
+        setCampaigns(
+          (current) =>
+            current.filter(
+              (item) =>
+                item.id !==
+                campaign.id
+            )
         );
 
         setMessage(
@@ -320,17 +445,26 @@ export default function AdminPage() {
         return;
       }
 
-      setCampaigns((current) =>
-        current.map((item) =>
-          item.id === campaign.id
-            ? {
-                ...item,
-                image_url: null,
-                image_path: null,
-                image_removed: true,
-              }
-            : item
-        )
+      setCampaigns(
+        (current) =>
+          current.map(
+            (item) =>
+              item.id ===
+              campaign.id
+                ? {
+                    ...item,
+
+                    image_url:
+                      null,
+
+                    image_path:
+                      null,
+
+                    image_removed:
+                      true,
+                  }
+                : item
+          )
       );
 
       setMessage(
@@ -343,7 +477,9 @@ export default function AdminPage() {
         "Campaign action failed."
       );
     } finally {
-      setActionLoading(null);
+      setActionLoading(
+        null
+      );
     }
   }
 
@@ -352,9 +488,12 @@ export default function AdminPage() {
 
     setIsLoggedIn(false);
     setIsAdmin(false);
+
     setCampaigns([]);
+
     setEmail("");
     setPassword("");
+
     setMessage("");
     setErrorMessage("");
   }
@@ -362,11 +501,15 @@ export default function AdminPage() {
   function statusStyle(
     status: CampaignStatus
   ) {
-    if (status === "active") {
+    if (
+      status === "active"
+    ) {
       return "bg-green-100 text-green-700";
     }
 
-    if (status === "rejected") {
+    if (
+      status === "rejected"
+    ) {
       return "bg-red-100 text-red-700";
     }
 
@@ -376,11 +519,15 @@ export default function AdminPage() {
   function statusText(
     status: CampaignStatus
   ) {
-    if (status === "active") {
+    if (
+      status === "active"
+    ) {
       return "APPROVED";
     }
 
-    if (status === "rejected") {
+    if (
+      status === "rejected"
+    ) {
       return "REJECTED";
     }
 
@@ -391,7 +538,8 @@ export default function AdminPage() {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50">
         <div className="text-lg font-black text-violet-600">
-          Loading admin panel...
+          Loading admin
+          panel...
         </div>
       </main>
     );
@@ -423,7 +571,9 @@ export default function AdminPage() {
             </div>
 
             <form
-              onSubmit={handleLogin}
+              onSubmit={
+                handleLogin
+              }
               className="mt-8"
             >
               <label className="block">
@@ -434,9 +584,12 @@ export default function AdminPage() {
                 <input
                   type="email"
                   value={email}
-                  onChange={(event) =>
+                  onChange={(
+                    event
+                  ) =>
                     setEmail(
-                      event.target.value
+                      event.target
+                        .value
                     )
                   }
                   className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-4 outline-none focus:border-violet-500"
@@ -452,10 +605,15 @@ export default function AdminPage() {
 
                 <input
                   type="password"
-                  value={password}
-                  onChange={(event) =>
+                  value={
+                    password
+                  }
+                  onChange={(
+                    event
+                  ) =>
                     setPassword(
-                      event.target.value
+                      event.target
+                        .value
                     )
                   }
                   className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-4 outline-none focus:border-violet-500"
@@ -466,13 +624,17 @@ export default function AdminPage() {
 
               {errorMessage && (
                 <div className="mt-5 rounded-xl bg-red-50 p-4 text-center text-sm font-bold text-red-700">
-                  {errorMessage}
+                  {
+                    errorMessage
+                  }
                 </div>
               )}
 
               <button
                 type="submit"
-                disabled={loginLoading}
+                disabled={
+                  loginLoading
+                }
                 className="mt-6 w-full rounded-xl bg-violet-600 py-4 font-black text-white hover:bg-violet-700 disabled:opacity-60"
               >
                 {loginLoading
@@ -499,12 +661,15 @@ export default function AdminPage() {
           </h1>
 
           <p className="mt-3 text-slate-500">
-            This account does not have admin
+            This account does
+            not have admin
             permission.
           </p>
 
           <button
-            onClick={handleLogout}
+            onClick={
+              handleLogout
+            }
             className="mt-6 rounded-xl bg-slate-950 px-6 py-3 font-bold text-white"
           >
             Sign out
@@ -547,6 +712,13 @@ export default function AdminPage() {
             </a>
 
             <a
+              href="/admin/audit"
+              className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700 hover:bg-blue-100"
+            >
+              🛡 Audit Logs
+            </a>
+
+            <a
               href="/"
               className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold hover:border-violet-300"
             >
@@ -554,7 +726,9 @@ export default function AdminPage() {
             </a>
 
             <button
-              onClick={handleLogout}
+              onClick={
+                handleLogout
+              }
               className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold hover:border-red-300 hover:text-red-600"
             >
               Sign out
@@ -566,7 +740,8 @@ export default function AdminPage() {
       <section className="mx-auto max-w-7xl px-5 py-10">
         <div>
           <div className="inline-flex rounded-full bg-violet-100 px-4 py-2 text-sm font-black text-violet-700">
-            {counts.all} TOTAL CAMPAIGNS
+            {counts.all} TOTAL
+            CAMPAIGNS
           </div>
 
           <h1 className="mt-4 text-4xl font-black">
@@ -574,47 +749,74 @@ export default function AdminPage() {
           </h1>
 
           <p className="mt-2 text-slate-500">
-            Review, approve, reject, restore or
-            delete submitted campaigns.
+            Review, approve,
+            reject, restore or
+            delete submitted
+            campaigns.
           </p>
         </div>
 
-        {/* FILTERS */}
         <div className="mt-8 grid gap-3 sm:grid-cols-4">
           <FilterButton
-            active={filter === "pending"}
+            active={
+              filter ===
+              "pending"
+            }
             onClick={() =>
-              setFilter("pending")
+              setFilter(
+                "pending"
+              )
             }
             label="Pending"
-            count={counts.pending}
+            count={
+              counts.pending
+            }
           />
 
           <FilterButton
-            active={filter === "active"}
+            active={
+              filter ===
+              "active"
+            }
             onClick={() =>
-              setFilter("active")
+              setFilter(
+                "active"
+              )
             }
             label="Active"
-            count={counts.active}
+            count={
+              counts.active
+            }
           />
 
           <FilterButton
-            active={filter === "rejected"}
+            active={
+              filter ===
+              "rejected"
+            }
             onClick={() =>
-              setFilter("rejected")
+              setFilter(
+                "rejected"
+              )
             }
             label="Rejected"
-            count={counts.rejected}
+            count={
+              counts.rejected
+            }
           />
 
           <FilterButton
-            active={filter === "all"}
+            active={
+              filter ===
+              "all"
+            }
             onClick={() =>
               setFilter("all")
             }
             label="All"
-            count={counts.all}
+            count={
+              counts.all
+            }
           />
         </div>
 
@@ -630,7 +832,8 @@ export default function AdminPage() {
           </div>
         )}
 
-        {filteredCampaigns.length === 0 ? (
+        {filteredCampaigns.length ===
+        0 ? (
           <div className="mt-8 rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
             <div className="text-4xl">
               ✓
@@ -641,8 +844,10 @@ export default function AdminPage() {
             </h2>
 
             <p className="mt-2 text-slate-500">
-              There are currently no campaigns
-              matching this filter.
+              There are
+              currently no
+              campaigns matching
+              this filter.
             </p>
           </div>
         ) : (
@@ -650,7 +855,9 @@ export default function AdminPage() {
             {filteredCampaigns.map(
               (campaign) => (
                 <article
-                  key={campaign.id}
+                  key={
+                    campaign.id
+                  }
                   className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
                 >
                   <div className="grid gap-6 lg:grid-cols-[240px_1fr_220px]">
@@ -693,11 +900,15 @@ export default function AdminPage() {
                       </div>
 
                       <h2 className="mt-4 text-2xl font-black">
-                        {campaign.title}
+                        {
+                          campaign.title
+                        }
                       </h2>
 
                       <p className="mt-1 text-lg font-bold text-violet-600">
-                        {campaign.subtitle}
+                        {
+                          campaign.subtitle
+                        }
                       </p>
 
                       <div className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -746,7 +957,8 @@ export default function AdminPage() {
                       </div>
 
                       <div className="mt-2 break-all text-xs text-slate-400">
-                        Slug: {campaign.slug}
+                        Slug:{" "}
+                        {campaign.slug}
                       </div>
 
                       {campaign.status ===
@@ -757,7 +969,8 @@ export default function AdminPage() {
                           rel="noreferrer"
                           className="mt-5 inline-block font-black text-violet-600 hover:underline"
                         >
-                          View live campaign →
+                          View live
+                          campaign →
                         </a>
                       )}
                     </div>

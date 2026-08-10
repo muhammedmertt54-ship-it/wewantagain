@@ -15,14 +15,11 @@ type AdminUser = {
   email: string | null;
   username: string | null;
   display_name: string | null;
-
   is_admin: boolean;
-
   created_at: string;
   last_sign_in_at: string | null;
   banned_until: string | null;
   email_confirmed_at: string | null;
-
   ips: UserIp[];
 };
 
@@ -31,18 +28,17 @@ type UserAction =
   | "unban-user"
   | "delete-user"
   | "ban-ip"
-  | "unban-ip";
+  | "unban-ip"
+  | "force-logout"
+  | "make-admin"
+  | "remove-admin";
 
 export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
-
   const [users, setUsers] = useState<AdminUser[]>([]);
-
   const [search, setSearch] = useState("");
-
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
-
   const [actionLoading, setActionLoading] =
     useState<string | null>(null);
 
@@ -66,9 +62,7 @@ export default function AdminUsersPage() {
         user.username ?? "",
         user.display_name ?? "",
         user.id,
-        ...user.ips.map(
-          (ip) => ip.ip_address
-        ),
+        ...user.ips.map((ip) => ip.ip_address),
       ]
         .join(" ")
         .toLowerCase();
@@ -98,31 +92,22 @@ export default function AdminUsersPage() {
     }
 
     try {
-      const response = await fetch(
-        "/api/admin/users",
-        {
-          method: "GET",
+      const response = await fetch("/api/admin/users", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        cache: "no-store",
+      });
 
-          headers: {
-            Authorization:
-              `Bearer ${token}`,
-          },
-
-          cache: "no-store",
-        }
-      );
-
-      const data =
-        await response.json();
+      const data = await response.json();
 
       if (!response.ok) {
         if (
           response.status === 401 ||
           response.status === 403
         ) {
-          window.location.href =
-            "/admin";
-
+          window.location.href = "/admin";
           return;
         }
 
@@ -131,7 +116,6 @@ export default function AdminUsersPage() {
             "Users could not be loaded."
         );
 
-        setLoading(false);
         return;
       }
 
@@ -142,15 +126,10 @@ export default function AdminUsersPage() {
       );
 
       const serverBannedIps =
-        Array.isArray(
-          data?.banned_ips
-        )
+        Array.isArray(data?.banned_ips)
           ? data.banned_ips.filter(
-              (
-                ip: unknown
-              ): ip is string =>
-                typeof ip ===
-                  "string" &&
+              (ip: unknown): ip is string =>
+                typeof ip === "string" &&
                 ip.length > 0
             )
           : [];
@@ -176,15 +155,13 @@ export default function AdminUsersPage() {
       return false;
     }
 
-    const time = new Date(
-      bannedUntil
-    ).getTime();
+    const time =
+      new Date(bannedUntil).getTime();
 
-    if (!Number.isFinite(time)) {
-      return false;
-    }
-
-    return time > Date.now();
+    return (
+      Number.isFinite(time) &&
+      time > Date.now()
+    );
   }
 
   async function manageUser(
@@ -193,6 +170,7 @@ export default function AdminUsersPage() {
       userId?: string;
       ipAddress?: string;
       label?: string;
+      reason?: string;
     }
   ) {
     setMessage("");
@@ -205,19 +183,64 @@ export default function AdminUsersPage() {
       setErrorMessage(
         "Admin session expired."
       );
-
       return;
     }
 
-    const actionKey =
-      action === "ban-ip" ||
-      action === "unban-ip"
-        ? `${action}:${options.ipAddress}`
-        : `${action}:${options.userId}`;
+    let finalReason =
+      options.reason ?? "";
 
-    if (
-      action === "delete-user"
-    ) {
+    if (action === "ban-user") {
+      const confirmed =
+        window.confirm(
+          `Ban ${
+            options.label ??
+            "this user"
+          }?`
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      const entered =
+        window.prompt(
+          "Ban reason (optional):",
+          ""
+        );
+
+      if (entered === null) {
+        return;
+      }
+
+      finalReason =
+        entered.trim();
+    }
+
+    if (action === "ban-ip") {
+      const confirmed =
+        window.confirm(
+          `Ban IP address ${options.ipAddress}?`
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      const entered =
+        window.prompt(
+          "IP ban reason (optional):",
+          ""
+        );
+
+      if (entered === null) {
+        return;
+      }
+
+      finalReason =
+        entered.trim();
+    }
+
+    if (action === "delete-user") {
       const confirmed =
         window.confirm(
           `Permanently delete ${
@@ -231,13 +254,13 @@ export default function AdminUsersPage() {
       }
     }
 
-    if (action === "ban-user") {
+    if (action === "force-logout") {
       const confirmed =
         window.confirm(
-          `Ban ${
+          `Force logout ${
             options.label ??
             "this user"
-          } from signing in?`
+          } from all sessions?`
         );
 
       if (!confirmed) {
@@ -245,10 +268,13 @@ export default function AdminUsersPage() {
       }
     }
 
-    if (action === "ban-ip") {
+    if (action === "make-admin") {
       const confirmed =
         window.confirm(
-          `Ban IP address ${options.ipAddress}?`
+          `Give admin permission to ${
+            options.label ??
+            "this user"
+          }?`
         );
 
       if (!confirmed) {
@@ -256,66 +282,79 @@ export default function AdminUsersPage() {
       }
     }
 
-    if (
+    if (action === "remove-admin") {
+      const confirmed =
+        window.confirm(
+          `Remove admin permission from ${
+            options.label ??
+            "this user"
+          }?`
+        );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    if (action === "unban-ip") {
+      const confirmed =
+        window.confirm(
+          `Remove IP ban for ${options.ipAddress}?`
+        );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    const actionKey =
+      action === "ban-ip" ||
       action === "unban-ip"
-    ) {
-      const confirmed =
-        window.confirm(
-          `Remove the IP ban for ${options.ipAddress}?`
-        );
+        ? `${action}:${options.ipAddress}`
+        : `${action}:${options.userId}`;
 
-      if (!confirmed) {
-        return;
-      }
-    }
-
-    setActionLoading(
-      actionKey
-    );
+    setActionLoading(actionKey);
 
     try {
       const response = await fetch(
         "/api/admin/users/manage",
         {
           method: "POST",
-
           headers: {
             "Content-Type":
               "application/json",
-
             Authorization:
               `Bearer ${token}`,
           },
-
           body: JSON.stringify({
             action,
-
             userId:
-              options.userId ??
-              null,
-
+              options.userId ?? null,
             ipAddress:
-              options.ipAddress ??
-              null,
+              options.ipAddress ?? null,
+            reason:
+              finalReason || null,
           }),
         }
       );
 
-      const data =
-        await response.json();
+      const data = await response.json();
 
       if (!response.ok) {
         setErrorMessage(
-          data?.error ??
-            "Action could not be completed."
+          data?.details
+            ? `${
+                data?.error ??
+                "Action failed."
+              } ${data.details}`
+            : data?.error ??
+                "Action could not be completed."
         );
 
         return;
       }
 
-      if (
-        action === "delete-user"
-      ) {
+      if (action === "delete-user") {
         setUsers((current) =>
           current.filter(
             (user) =>
@@ -332,21 +371,17 @@ export default function AdminUsersPage() {
       }
 
       if (action === "ban-ip") {
-        if (
-          options.ipAddress
-        ) {
-          setBannedIps(
-            (current) => {
-              const next =
-                new Set(current);
+        if (options.ipAddress) {
+          setBannedIps((current) => {
+            const next =
+              new Set(current);
 
-              next.add(
-                options.ipAddress!
-              );
+            next.add(
+              options.ipAddress!
+            );
 
-              return next;
-            }
-          );
+            return next;
+          });
         }
 
         setMessage(
@@ -356,24 +391,18 @@ export default function AdminUsersPage() {
         return;
       }
 
-      if (
-        action === "unban-ip"
-      ) {
-        if (
-          options.ipAddress
-        ) {
-          setBannedIps(
-            (current) => {
-              const next =
-                new Set(current);
+      if (action === "unban-ip") {
+        if (options.ipAddress) {
+          setBannedIps((current) => {
+            const next =
+              new Set(current);
 
-              next.delete(
-                options.ipAddress!
-              );
+            next.delete(
+              options.ipAddress!
+            );
 
-              return next;
-            }
-          );
+            return next;
+          });
         }
 
         setMessage(
@@ -383,21 +412,37 @@ export default function AdminUsersPage() {
         return;
       }
 
+      if (action === "force-logout") {
+        setMessage(
+          "User sessions ended."
+        );
+
+        return;
+      }
+
       await loadUsers();
 
-      if (
-        action === "ban-user"
-      ) {
+      if (action === "ban-user") {
         setMessage(
           "User account banned."
         );
       }
 
-      if (
-        action === "unban-user"
-      ) {
+      if (action === "unban-user") {
         setMessage(
           "User account unbanned."
+        );
+      }
+
+      if (action === "make-admin") {
+        setMessage(
+          "Admin permission granted."
+        );
+      }
+
+      if (action === "remove-admin") {
+        setMessage(
+          "Admin permission removed."
         );
       }
     } catch (error) {
@@ -413,7 +458,6 @@ export default function AdminUsersPage() {
 
   async function handleLogout() {
     await supabase.auth.signOut();
-
     window.location.href = "/";
   }
 
@@ -453,6 +497,13 @@ export default function AdminUsersPage() {
             </a>
 
             <a
+              href="/admin/audit"
+              className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700 hover:bg-blue-100"
+            >
+              🛡 Audit Logs
+            </a>
+
+            <a
               href="/"
               className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold hover:border-violet-300"
             >
@@ -461,9 +512,7 @@ export default function AdminUsersPage() {
 
             <button
               type="button"
-              onClick={
-                handleLogout
-              }
+              onClick={handleLogout}
               className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100"
             >
               Sign out
@@ -484,8 +533,8 @@ export default function AdminUsersPage() {
             </h1>
 
             <p className="mt-2 text-slate-500">
-              Manage accounts and review
-              recorded account IP history.
+              Manage accounts, admin permissions,
+              sessions and IP restrictions.
             </p>
           </div>
 
@@ -497,12 +546,9 @@ export default function AdminUsersPage() {
             <input
               type="search"
               value={search}
-              onChange={(
-                event
-              ) =>
+              onChange={(event) =>
                 setSearch(
-                  event.target
-                    .value
+                  event.target.value
                 )
               }
               placeholder="Email, username, user ID or IP..."
@@ -524,15 +570,11 @@ export default function AdminUsersPage() {
         )}
 
         <div className="mt-8 text-sm font-bold text-slate-500">
-          Showing{" "}
-          {
-            filteredUsers.length
-          }{" "}
-          of {users.length} users
+          Showing {filteredUsers.length} of{" "}
+          {users.length} users
         </div>
 
-        {filteredUsers.length ===
-        0 ? (
+        {filteredUsers.length === 0 ? (
           <div className="mt-6 rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
             <div className="text-4xl">
               🔎
@@ -544,359 +586,399 @@ export default function AdminUsersPage() {
           </div>
         ) : (
           <div className="mt-6 space-y-5">
-            {filteredUsers.map(
-              (user) => {
-                const banned =
-                  isUserBanned(
-                    user.banned_until
-                  );
+            {filteredUsers.map((user) => {
+              const banned =
+                isUserBanned(
+                  user.banned_until
+                );
 
-                return (
-                  <article
-                    key={
-                      user.id
-                    }
-                    className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
-                  >
-                    <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          {user.is_admin && (
-                            <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-black text-violet-700">
-                              ADMIN
-                            </span>
-                          )}
+              const label =
+                user.email ??
+                user.username ??
+                user.id;
 
-                          {banned ? (
-                            <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-black text-red-700">
-                              BANNED
-                            </span>
-                          ) : (
-                            <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-black text-green-700">
-                              ACTIVE
-                            </span>
-                          )}
-
-                          {user.email_confirmed_at ? (
-                            <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-black text-blue-700">
-                              EMAIL VERIFIED
-                            </span>
-                          ) : (
-                            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-700">
-                              EMAIL UNVERIFIED
-                            </span>
-                          )}
-                        </div>
-
-                        <h2 className="mt-4 break-all text-2xl font-black">
-                          {user.display_name ||
-                            user.username ||
-                            user.email ||
-                            "User"}
-                        </h2>
-
-                        {user.username && (
-                          <div className="mt-1 font-bold text-violet-600">
-                            @
-                            {
-                              user.username
-                            }
-                          </div>
+              return (
+                <article
+                  key={user.id}
+                  className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
+                >
+                  <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {user.is_admin && (
+                          <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-black text-violet-700">
+                            ADMIN
+                          </span>
                         )}
 
-                        <div className="mt-2 break-all text-sm text-slate-500">
-                          {user.email ??
-                            "No email"}
+                        {banned ? (
+                          <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-black text-red-700">
+                            BANNED
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-black text-green-700">
+                            ACTIVE
+                          </span>
+                        )}
+
+                        {user.email_confirmed_at ? (
+                          <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-black text-blue-700">
+                            EMAIL VERIFIED
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-700">
+                            EMAIL UNVERIFIED
+                          </span>
+                        )}
+                      </div>
+
+                      <h2 className="mt-4 break-all text-2xl font-black">
+                        {user.display_name ||
+                          user.username ||
+                          user.email ||
+                          "User"}
+                      </h2>
+
+                      {user.username && (
+                        <div className="mt-1 font-bold text-violet-600">
+                          @{user.username}
                         </div>
+                      )}
 
-                        <div className="mt-6 grid gap-3 md:grid-cols-2">
-                          <InfoBox
-                            title="User ID"
-                            value={
-                              user.id
-                            }
-                            mono
-                          />
+                      <div className="mt-2 break-all text-sm text-slate-500">
+                        {user.email ??
+                          "No email"}
+                      </div>
 
-                          <InfoBox
-                            title="Created"
-                            value={formatDate(
-                              user.created_at
-                            )}
-                          />
+                      <div className="mt-6 grid gap-3 md:grid-cols-2">
+                        <InfoBox
+                          title="User ID"
+                          value={user.id}
+                          mono
+                        />
 
-                          <InfoBox
-                            title="Last sign in"
-                            value={
-                              user.last_sign_in_at
-                                ? formatDate(
-                                    user.last_sign_in_at
-                                  )
-                                : "Never"
-                            }
-                          />
+                        <InfoBox
+                          title="Created"
+                          value={formatDate(
+                            user.created_at
+                          )}
+                        />
 
-                          <InfoBox
-                            title="IP addresses"
-                            value={String(
-                              user.ips
-                                .length
-                            )}
-                          />
-                        </div>
+                        <InfoBox
+                          title="Last sign in"
+                          value={
+                            user.last_sign_in_at
+                              ? formatDate(
+                                  user.last_sign_in_at
+                                )
+                              : "Never"
+                          }
+                        />
 
-                        <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div>
-                              <h3 className="font-black">
-                                IP history
-                              </h3>
+                        <InfoBox
+                          title="IP addresses"
+                          value={String(
+                            user.ips.length
+                          )}
+                        />
+                      </div>
 
-                              <p className="mt-1 text-xs text-slate-500">
-                                IP addresses
-                                recorded while
-                                this account was
-                                signed in.
-                              </p>
-                            </div>
+                      <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <h3 className="font-black">
+                              IP history
+                            </h3>
 
-                            <div className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-500">
-                              {
-                                user.ips
-                                  .length
-                              }{" "}
-                              recorded
-                            </div>
+                            <p className="mt-1 text-xs text-slate-500">
+                              Recorded addresses used by
+                              this account.
+                            </p>
                           </div>
 
-                          {user.ips
-                            .length ===
-                          0 ? (
-                            <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-5 text-center text-sm text-slate-500">
-                              No IP address has
-                              been recorded for
-                              this account yet.
-                            </div>
-                          ) : (
-                            <div className="mt-4 space-y-3">
-                              {user.ips.map(
-                                (
-                                  ip
-                                ) => {
-                                  const ipIsBanned =
-                                    bannedIps.has(
-                                      ip.ip_address
-                                    );
+                          <div className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-500">
+                            {user.ips.length} recorded
+                          </div>
+                        </div>
 
-                                  return (
-                                    <div
-                                      key={
-                                        ip.id
-                                      }
-                                      className="rounded-xl border border-slate-200 bg-white p-4"
-                                    >
-                                      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                                        <div className="min-w-0">
-                                          <div className="flex flex-wrap items-center gap-2">
-                                            <code className="break-all rounded-lg bg-slate-100 px-3 py-2 text-sm font-black text-slate-800">
-                                              {
-                                                ip.ip_address
-                                              }
-                                            </code>
+                        {user.ips.length === 0 ? (
+                          <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-5 text-center text-sm text-slate-500">
+                            No IP address has been
+                            recorded yet.
+                          </div>
+                        ) : (
+                          <div className="mt-4 space-y-3">
+                            {user.ips.map((ip) => {
+                              const ipIsBanned =
+                                bannedIps.has(
+                                  ip.ip_address
+                                );
 
-                                            {ipIsBanned && (
-                                              <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-black text-red-700">
-                                                IP
-                                                BANNED
-                                              </span>
-                                            )}
-                                          </div>
+                              return (
+                                <div
+                                  key={ip.id}
+                                  className="rounded-xl border border-slate-200 bg-white p-4"
+                                >
+                                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                                    <div className="min-w-0">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <code className="break-all rounded-lg bg-slate-100 px-3 py-2 text-sm font-black">
+                                          {
+                                            ip.ip_address
+                                          }
+                                        </code>
 
-                                          <div className="mt-3 grid gap-1 text-xs text-slate-500 sm:grid-cols-2 sm:gap-5">
-                                            <div>
-                                              First
-                                              seen:{" "}
-                                              {formatDate(
-                                                ip.first_seen_at
-                                              )}
-                                            </div>
+                                        {ipIsBanned && (
+                                          <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-black text-red-700">
+                                            IP BANNED
+                                          </span>
+                                        )}
+                                      </div>
 
-                                            <div>
-                                              Last
-                                              seen:{" "}
-                                              {formatDate(
-                                                ip.last_seen_at
-                                              )}
-                                            </div>
-                                          </div>
+                                      <div className="mt-3 grid gap-1 text-xs text-slate-500 sm:grid-cols-2">
+                                        <div>
+                                          First seen:{" "}
+                                          {formatDate(
+                                            ip.first_seen_at
+                                          )}
                                         </div>
 
-                                        <div className="flex flex-wrap gap-2">
-                                          {!ipIsBanned ? (
-                                            <button
-                                              type="button"
-                                              disabled={
-                                                actionLoading !==
-                                                null
-                                              }
-                                              onClick={() =>
-                                                manageUser(
-                                                  "ban-ip",
-                                                  {
-                                                    ipAddress:
-                                                      ip.ip_address,
-                                                  }
-                                                )
-                                              }
-                                              className="rounded-xl bg-red-50 px-4 py-3 text-sm font-black text-red-700 hover:bg-red-100 disabled:opacity-50"
-                                            >
-                                              {actionLoading ===
-                                              `ban-ip:${ip.ip_address}`
-                                                ? "BANNING..."
-                                                : "BAN IP"}
-                                            </button>
-                                          ) : (
-                                            <button
-                                              type="button"
-                                              disabled={
-                                                actionLoading !==
-                                                null
-                                              }
-                                              onClick={() =>
-                                                manageUser(
-                                                  "unban-ip",
-                                                  {
-                                                    ipAddress:
-                                                      ip.ip_address,
-                                                  }
-                                                )
-                                              }
-                                              className="rounded-xl bg-green-50 px-4 py-3 text-sm font-black text-green-700 hover:bg-green-100 disabled:opacity-50"
-                                            >
-                                              {actionLoading ===
-                                              `unban-ip:${ip.ip_address}`
-                                                ? "REMOVING..."
-                                                : "UNBAN IP"}
-                                            </button>
+                                        <div>
+                                          Last seen:{" "}
+                                          {formatDate(
+                                            ip.last_seen_at
                                           )}
                                         </div>
                                       </div>
                                     </div>
-                                  );
-                                }
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
 
-                      <div className="grid w-full gap-3 sm:grid-cols-2 xl:w-56 xl:grid-cols-1">
-                        {banned ? (
-                          <button
-                            type="button"
-                            disabled={
-                              actionLoading !==
-                              null
-                            }
-                            onClick={() =>
-                              manageUser(
-                                "unban-user",
-                                {
-                                  userId:
-                                    user.id,
-
-                                  label:
-                                    user.email ??
-                                    user.id,
-                                }
-                              )
-                            }
-                            className="rounded-xl bg-green-600 px-5 py-4 font-black text-white hover:bg-green-700 disabled:opacity-50"
-                          >
-                            {actionLoading ===
-                            `unban-user:${user.id}`
-                              ? "WAIT..."
-                              : "UNBAN USER"}
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={
-                              actionLoading !==
-                                null ||
-                              user.is_admin
-                            }
-                            onClick={() =>
-                              manageUser(
-                                "ban-user",
-                                {
-                                  userId:
-                                    user.id,
-
-                                  label:
-                                    user.email ??
-                                    user.id,
-                                }
-                              )
-                            }
-                            className="rounded-xl bg-amber-50 px-5 py-4 font-black text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            {actionLoading ===
-                            `ban-user:${user.id}`
-                              ? "WAIT..."
-                              : user.is_admin
-                              ? "ADMIN ACCOUNT"
-                              : "BAN USER"}
-                          </button>
+                                    {!ipIsBanned ? (
+                                      <button
+                                        type="button"
+                                        disabled={
+                                          actionLoading !==
+                                          null
+                                        }
+                                        onClick={() =>
+                                          manageUser(
+                                            "ban-ip",
+                                            {
+                                              userId:
+                                                user.id,
+                                              ipAddress:
+                                                ip.ip_address,
+                                            }
+                                          )
+                                        }
+                                        className="rounded-xl bg-red-50 px-4 py-3 text-sm font-black text-red-700 hover:bg-red-100 disabled:opacity-50"
+                                      >
+                                        {actionLoading ===
+                                        `ban-ip:${ip.ip_address}`
+                                          ? "BANNING..."
+                                          : "BAN IP"}
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        disabled={
+                                          actionLoading !==
+                                          null
+                                        }
+                                        onClick={() =>
+                                          manageUser(
+                                            "unban-ip",
+                                            {
+                                              userId:
+                                                user.id,
+                                              ipAddress:
+                                                ip.ip_address,
+                                            }
+                                          )
+                                        }
+                                        className="rounded-xl bg-green-50 px-4 py-3 text-sm font-black text-green-700 hover:bg-green-100 disabled:opacity-50"
+                                      >
+                                        {actionLoading ===
+                                        `unban-ip:${ip.ip_address}`
+                                          ? "REMOVING..."
+                                          : "UNBAN IP"}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
                         )}
+                      </div>
+                    </div>
 
+                    <div className="grid w-full gap-3 sm:grid-cols-2 xl:w-64 xl:grid-cols-1">
+                      <a
+                        href={`/admin/users/${user.id}`}
+                        className="rounded-xl bg-slate-950 px-5 py-4 text-center font-black text-white hover:bg-violet-700"
+                      >
+                        👁 VIEW DETAILS
+                      </a>
+
+                      {banned ? (
                         <button
                           type="button"
                           disabled={
-                            actionLoading !==
-                              null ||
+                            actionLoading !== null
+                          }
+                          onClick={() =>
+                            manageUser(
+                              "unban-user",
+                              {
+                                userId: user.id,
+                                label,
+                              }
+                            )
+                          }
+                          className="rounded-xl bg-green-600 px-5 py-4 font-black text-white hover:bg-green-700 disabled:opacity-50"
+                        >
+                          {actionLoading ===
+                          `unban-user:${user.id}`
+                            ? "WAIT..."
+                            : "UNBAN USER"}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={
+                            actionLoading !== null ||
                             user.is_admin
                           }
                           onClick={() =>
                             manageUser(
-                              "delete-user",
+                              "ban-user",
                               {
-                                userId:
-                                  user.id,
-
-                                label:
-                                  user.email ??
-                                  user.id,
+                                userId: user.id,
+                                label,
                               }
                             )
                           }
-                          className="rounded-xl bg-red-600 px-5 py-4 font-black text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="rounded-xl bg-amber-50 px-5 py-4 font-black text-amber-700 hover:bg-amber-100 disabled:opacity-40"
                         >
                           {actionLoading ===
-                          `delete-user:${user.id}`
-                            ? "DELETING..."
+                          `ban-user:${user.id}`
+                            ? "WAIT..."
                             : user.is_admin
                             ? "ADMIN PROTECTED"
-                            : "DELETE USER"}
+                            : "BAN USER"}
                         </button>
+                      )}
 
+                      <button
+                        type="button"
+                        disabled={
+                          actionLoading !== null ||
+                          user.is_admin
+                        }
+                        onClick={() =>
+                          manageUser(
+                            "force-logout",
+                            {
+                              userId: user.id,
+                              label,
+                            }
+                          )
+                        }
+                        className="rounded-xl bg-blue-50 px-5 py-4 font-black text-blue-700 hover:bg-blue-100 disabled:opacity-40"
+                      >
+                        {actionLoading ===
+                        `force-logout:${user.id}`
+                          ? "WAIT..."
+                          : "FORCE LOGOUT"}
+                      </button>
+
+                      {!user.is_admin ? (
                         <button
                           type="button"
+                          disabled={
+                            actionLoading !== null
+                          }
                           onClick={() =>
-                            navigator.clipboard.writeText(
-                              user.id
+                            manageUser(
+                              "make-admin",
+                              {
+                                userId: user.id,
+                                label,
+                              }
                             )
                           }
-                          className="rounded-xl border border-slate-200 px-5 py-4 font-black hover:border-violet-300 hover:text-violet-600"
+                          className="rounded-xl bg-violet-600 px-5 py-4 font-black text-white hover:bg-violet-700 disabled:opacity-50"
                         >
-                          COPY USER ID
+                          {actionLoading ===
+                          `make-admin:${user.id}`
+                            ? "WAIT..."
+                            : "MAKE ADMIN"}
                         </button>
-                      </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={
+                            actionLoading !== null
+                          }
+                          onClick={() =>
+                            manageUser(
+                              "remove-admin",
+                              {
+                                userId: user.id,
+                                label,
+                              }
+                            )
+                          }
+                          className="rounded-xl bg-violet-50 px-5 py-4 font-black text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+                        >
+                          {actionLoading ===
+                          `remove-admin:${user.id}`
+                            ? "WAIT..."
+                            : "REMOVE ADMIN"}
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        disabled={
+                          actionLoading !== null ||
+                          user.is_admin
+                        }
+                        onClick={() =>
+                          manageUser(
+                            "delete-user",
+                            {
+                              userId: user.id,
+                              label,
+                            }
+                          )
+                        }
+                        className="rounded-xl bg-red-600 px-5 py-4 font-black text-white hover:bg-red-700 disabled:opacity-40"
+                      >
+                        {actionLoading ===
+                        `delete-user:${user.id}`
+                          ? "DELETING..."
+                          : user.is_admin
+                          ? "ADMIN PROTECTED"
+                          : "DELETE USER"}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          navigator.clipboard.writeText(
+                            user.id
+                          )
+                        }
+                        className="rounded-xl border border-slate-200 px-5 py-4 font-black hover:border-violet-300 hover:text-violet-600"
+                      >
+                        COPY USER ID
+                      </button>
                     </div>
-                  </article>
-                );
-              }
-            )}
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
       </section>
@@ -930,13 +1012,9 @@ function InfoBox({
   );
 }
 
-function formatDate(
-  value: string
-) {
+function formatDate(value: string) {
   try {
-    return new Date(
-      value
-    ).toLocaleString();
+    return new Date(value).toLocaleString();
   } catch {
     return value;
   }
