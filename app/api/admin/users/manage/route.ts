@@ -122,18 +122,20 @@ export async function POST(request: NextRequest) {
         ? body.reason.trim()
         : "";
 
+    const allowedActions: UserAction[] = [
+      "ban-user",
+      "unban-user",
+      "delete-user",
+      "ban-ip",
+      "unban-ip",
+      "force-logout",
+      "make-admin",
+      "remove-admin",
+    ];
+
     if (
       !action ||
-      ![
-        "ban-user",
-        "unban-user",
-        "delete-user",
-        "ban-ip",
-        "unban-ip",
-        "force-logout",
-        "make-admin",
-        "remove-admin",
-      ].includes(action)
+      !allowedActions.includes(action)
     ) {
       return NextResponse.json(
         { error: "Invalid action." },
@@ -191,10 +193,43 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // Açık oturumları da uygulama tarafında iptal et.
+      const revokedBefore =
+        new Date().toISOString();
+
+      const {
+        error: revokeError,
+      } = await supabaseAdmin
+        .from("user_session_controls")
+        .upsert(
+          {
+            user_id: userId,
+            revoked_before:
+              revokedBefore,
+            updated_by:
+              auth.user.id,
+            updated_at:
+              revokedBefore,
+          },
+          {
+            onConflict: "user_id",
+          }
+        );
+
+      if (revokeError) {
+        console.error(
+          "Session revoke marker error:",
+          revokeError
+        );
+      }
+
       await writeAuditLog({
-        adminUserId: auth.user.id,
-        targetUserId: userId,
-        action: "ban-user",
+        adminUserId:
+          auth.user.id,
+        targetUserId:
+          userId,
+        action:
+          "ban-user",
         details: {
           reason:
             reason || null,
@@ -202,6 +237,8 @@ export async function POST(request: NextRequest) {
             bannedUser.user
               ?.banned_until ??
             null,
+          sessions_revoked:
+            !revokeError,
         },
       });
 
@@ -251,9 +288,12 @@ export async function POST(request: NextRequest) {
       }
 
       await writeAuditLog({
-        adminUserId: auth.user.id,
-        targetUserId: userId,
-        action: "unban-user",
+        adminUserId:
+          auth.user.id,
+        targetUserId:
+          userId,
+        action:
+          "unban-user",
       });
 
       return NextResponse.json({
@@ -285,9 +325,12 @@ export async function POST(request: NextRequest) {
       }
 
       await writeAuditLog({
-        adminUserId: auth.user.id,
-        targetUserId: userId,
-        action: "delete-user",
+        adminUserId:
+          auth.user.id,
+        targetUserId:
+          userId,
+        action:
+          "delete-user",
       });
 
       const {
@@ -342,18 +385,42 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const {
-        error: sessionDeleteError,
-      } = await supabaseAdmin
-        .schema("auth")
-        .from("sessions")
-        .delete()
-        .eq("user_id", userId);
+      const now =
+        new Date().toISOString();
 
-      if (sessionDeleteError) {
+      const {
+        data: controlRow,
+        error: forceLogoutError,
+      } = await supabaseAdmin
+        .from("user_session_controls")
+        .upsert(
+          {
+            user_id:
+              userId,
+
+            revoked_before:
+              now,
+
+            updated_by:
+              auth.user.id,
+
+            updated_at:
+              now,
+          },
+          {
+            onConflict:
+              "user_id",
+          }
+        )
+        .select(
+          "user_id, revoked_before"
+        )
+        .single();
+
+      if (forceLogoutError) {
         console.error(
           "Force logout error:",
-          sessionDeleteError
+          forceLogoutError
         );
 
         return NextResponse.json(
@@ -361,21 +428,41 @@ export async function POST(request: NextRequest) {
             error:
               "User sessions could not be ended.",
             details:
-              sessionDeleteError.message,
+              forceLogoutError.message,
+          },
+          { status: 500 }
+        );
+      }
+
+      if (!controlRow) {
+        return NextResponse.json(
+          {
+            error:
+              "Force logout marker was not saved.",
           },
           { status: 500 }
         );
       }
 
       await writeAuditLog({
-        adminUserId: auth.user.id,
-        targetUserId: userId,
-        action: "force-logout",
+        adminUserId:
+          auth.user.id,
+        targetUserId:
+          userId,
+        action:
+          "force-logout",
+        details: {
+          revoked_before:
+            controlRow.revoked_before,
+        },
       });
 
       return NextResponse.json({
         success: true,
-        action: "force-logout",
+        action:
+          "force-logout",
+        revokedBefore:
+          controlRow.revoked_before,
       });
     }
 
@@ -397,10 +484,12 @@ export async function POST(request: NextRequest) {
         .from("admins")
         .upsert(
           {
-            user_id: userId,
+            user_id:
+              userId,
           },
           {
-            onConflict: "user_id",
+            onConflict:
+              "user_id",
           }
         );
 
@@ -422,9 +511,12 @@ export async function POST(request: NextRequest) {
       }
 
       await writeAuditLog({
-        adminUserId: auth.user.id,
-        targetUserId: userId,
-        action: "make-admin",
+        adminUserId:
+          auth.user.id,
+        targetUserId:
+          userId,
+        action:
+          "make-admin",
       });
 
       return NextResponse.json({
@@ -460,7 +552,10 @@ export async function POST(request: NextRequest) {
       } = await supabaseAdmin
         .from("admins")
         .delete()
-        .eq("user_id", userId);
+        .eq(
+          "user_id",
+          userId
+        );
 
       if (removeAdminError) {
         console.error(
@@ -480,14 +575,18 @@ export async function POST(request: NextRequest) {
       }
 
       await writeAuditLog({
-        adminUserId: auth.user.id,
-        targetUserId: userId,
-        action: "remove-admin",
+        adminUserId:
+          auth.user.id,
+        targetUserId:
+          userId,
+        action:
+          "remove-admin",
       });
 
       return NextResponse.json({
         success: true,
-        action: "remove-admin",
+        action:
+          "remove-admin",
       });
     }
 
@@ -510,9 +609,12 @@ export async function POST(request: NextRequest) {
         .from("ip_bans")
         .upsert(
           {
-            ip_address: ipAddress,
+            ip_address:
+              ipAddress,
+
             reason:
               reason || null,
+
             banned_by:
               auth.user.id,
           },
@@ -556,10 +658,12 @@ export async function POST(request: NextRequest) {
       }
 
       await writeAuditLog({
-        adminUserId: auth.user.id,
+        adminUserId:
+          auth.user.id,
         targetUserId:
           userId || null,
-        action: "ban-ip",
+        action:
+          "ban-ip",
         details: {
           ip_address:
             bannedIp.ip_address,
@@ -622,10 +726,12 @@ export async function POST(request: NextRequest) {
       }
 
       await writeAuditLog({
-        adminUserId: auth.user.id,
+        adminUserId:
+          auth.user.id,
         targetUserId:
           userId || null,
-        action: "unban-ip",
+        action:
+          "unban-ip",
         details: {
           ip_address:
             ipAddress,
