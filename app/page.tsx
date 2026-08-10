@@ -1,4 +1,4 @@
-﻿import Header from "./Header";
+import Header from "./Header";
 import SearchBox from "./SearchBox";
 import { supabase } from "../lib/supabase";
 
@@ -17,6 +17,37 @@ type Campaign = {
   image_removed: boolean;
 };
 
+type SiteSettings = {
+  hero_badge: string;
+  hero_title: string;
+  hero_description: string;
+  hero_primary_button: string;
+  hero_secondary_button: string;
+  trending_title: string;
+  most_wanted_title: string;
+  categories_title: string;
+  footer_text: string;
+  submissions_enabled: boolean;
+  support_enabled: boolean;
+  maintenance_mode: boolean;
+};
+
+const defaultSiteSettings: SiteSettings = {
+  hero_badge: "🌍 Make your voice heard worldwide",
+  hero_title: "WHAT DO YOU WANT AGAIN?",
+  hero_description:
+    "Support the shows, movies and games you want to see return. Together, your voice becomes impossible to ignore.",
+  hero_primary_button: "START A DEMAND",
+  hero_secondary_button: "BROWSE CAMPAIGNS",
+  trending_title: "🔥 TRENDING NOW",
+  most_wanted_title: "🏆 MOST WANTED",
+  categories_title: "★ BROWSE BY CATEGORY",
+  footer_text: "{siteSettings.footer_text}",
+  submissions_enabled: true,
+  support_enabled: true,
+  maintenance_mode: false,
+};
+
 type HomeProps = {
   searchParams: Promise<{
     category?: string;
@@ -27,6 +58,31 @@ export default async function Home({
   searchParams,
 }: HomeProps) {
   const params = await searchParams;
+
+  const { data: siteSettingsRow } = await supabase
+    .from("site_settings")
+    .select("settings")
+    .limit(1)
+    .maybeSingle();
+
+  const siteSettings: SiteSettings = {
+    ...defaultSiteSettings,
+    ...((siteSettingsRow?.settings as Partial<SiteSettings> | null) ?? {}),
+  };
+
+  if (siteSettings.maintenance_mode) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white">
+        <div className="max-w-xl text-center">
+          <div className="text-5xl">🛠️</div>
+          <h1 className="mt-6 text-4xl font-black">We&apos;ll be back soon.</h1>
+          <p className="mt-4 text-lg text-slate-300">
+            WeWantAgain is temporarily under maintenance.
+          </p>
+        </div>
+      </main>
+    );
+  }
 
   const selectedCategory =
     typeof params.category === "string"
@@ -119,23 +175,15 @@ export default async function Home({
 
         <div className="relative mx-auto max-w-5xl px-6 py-20 text-center">
           <div className="mb-4 inline-flex rounded-full border border-violet-200 bg-white px-4 py-2 text-sm font-bold text-violet-700 shadow-sm">
-            ?? Make your voice heard worldwide
+            {siteSettings.hero_badge}
           </div>
 
           <h1 className="text-5xl font-black leading-[0.95] tracking-tight sm:text-7xl">
-            WHAT DO YOU
-            <br />
-            WANT{" "}
-            <span className="text-violet-600">
-              AGAIN?
-            </span>
+            {siteSettings.hero_title}
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-lg text-slate-600">
-            Support the shows, movies and games
-            you want to see return. Together,
-            your voice becomes impossible to
-            ignore.
+            {siteSettings.hero_description}
           </p>
 
           <SearchBox campaigns={searchCampaigns} />
@@ -205,7 +253,7 @@ export default async function Home({
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-black">
-              ?? TRENDING NOW
+              {siteSettings.trending_title}
             </h2>
 
             {selectedCategory && (
@@ -288,9 +336,11 @@ export default async function Home({
                         />
                       </div>
 
-                      <div className="mt-5 w-full rounded-xl border-2 border-violet-500 py-3 text-center font-black text-violet-600 transition hover:bg-violet-600 hover:text-white">
-                        ? SUPPORT
-                      </div>
+                      {siteSettings.support_enabled && (
+                        <div className="mt-5 w-full rounded-xl border-2 border-violet-500 py-3 text-center font-black text-violet-600 transition hover:bg-violet-600 hover:text-white">
+                          SUPPORT
+                        </div>
+                      )}
                     </div>
                   </article>
                 </a>
@@ -307,7 +357,7 @@ export default async function Home({
       >
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-2xl font-black">
-            ?? MOST WANTED
+            {siteSettings.most_wanted_title}
           </h2>
 
           <a
@@ -466,7 +516,7 @@ export default async function Home({
       >
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-2xl font-black">
-            ? BROWSE BY CATEGORY
+            {siteSettings.categories_title}
           </h2>
 
           <a
@@ -505,34 +555,34 @@ export default async function Home({
       </section>
 
       {/* CTA */}
-      <section className="mx-auto max-w-7xl px-6 pb-14">
-        <div className="flex flex-col items-center justify-between gap-6 rounded-3xl border border-violet-200 bg-violet-50 px-8 py-8 md:flex-row">
-          <div className="flex items-center gap-5">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full border border-violet-300 bg-white text-3xl">
-              ?
+      {siteSettings.submissions_enabled && (
+        <section className="mx-auto max-w-7xl px-6 pb-14">
+          <div className="flex flex-col items-center justify-between gap-6 rounded-3xl border border-violet-200 bg-violet-50 px-8 py-8 md:flex-row">
+            <div className="flex items-center gap-5">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full border border-violet-300 bg-white text-3xl">
+                ✨
+              </div>
+
+              <div>
+                <h2 className="text-2xl font-black">
+                  Want something back that isn&apos;t here?
+                </h2>
+
+                <p className="mt-1 text-slate-600">
+                  Create your own demand and rally thousands of supporters.
+                </p>
+              </div>
             </div>
 
-            <div>
-              <h2 className="text-2xl font-black">
-                Want something back that
-                isn&apos;t here?
-              </h2>
-
-              <p className="mt-1 text-slate-600">
-                Create your own demand and rally
-                thousands of supporters.
-              </p>
-            </div>
+            <a
+              href="/start-demand"
+              className="rounded-xl bg-violet-600 px-8 py-4 font-black text-white shadow-lg shadow-violet-200 hover:bg-violet-700"
+            >
+              + {siteSettings.hero_primary_button}
+            </a>
           </div>
-
-          <a
-            href="/start-demand"
-            className="rounded-xl bg-violet-600 px-8 py-4 font-black text-white shadow-lg shadow-violet-200 hover:bg-violet-700"
-          >
-            + START A DEMAND
-          </a>
-        </div>
-      </section>
+        </section>
+      )}
 
       <footer className="border-t border-slate-200 bg-slate-50">
         <div className="mx-auto grid max-w-7xl gap-8 px-6 py-12 md:grid-cols-4">

@@ -719,6 +719,13 @@ export default function AdminPage() {
             </a>
 
             <a
+              href="/admin/site"
+              className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-black text-green-700 hover:bg-green-100"
+            >
+              ⚙ Site Management
+            </a>
+
+            <a
               href="/"
               className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold hover:border-violet-300"
             >
