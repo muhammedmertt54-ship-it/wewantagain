@@ -20,6 +20,7 @@ type SiteSettings = {
   support_enabled: boolean;
 
   maintenance_mode: boolean;
+  maintenance_schedule_enabled: boolean;
   maintenance_reason: string;
   maintenance_message: string;
   maintenance_starts_at: string;
@@ -58,6 +59,7 @@ const defaultSettings: SiteSettings = {
   support_enabled: true,
 
   maintenance_mode: false,
+  maintenance_schedule_enabled: false,
 
   maintenance_reason:
     "Scheduled maintenance",
@@ -142,8 +144,10 @@ export default function AdminSitePage() {
 
       if (!response.ok) {
         if (
-          response.status === 401 ||
-          response.status === 403
+          response.status ===
+            401 ||
+          response.status ===
+            403
         ) {
           window.location.href =
             "/admin";
@@ -176,7 +180,10 @@ export default function AdminSitePage() {
     }
   }
 
-  async function saveSettings() {
+  async function saveSettings(
+    customSettings?: SiteSettings,
+    customSuccessMessage?: string
+  ) {
     setMessage("");
     setErrorMessage("");
     setSaving(true);
@@ -191,12 +198,15 @@ export default function AdminSitePage() {
 
       setSaving(false);
 
-      return;
+      return false;
     }
 
+    const settingsToSave =
+      customSettings ?? settings;
+
     if (
-      settings.maintenance_mode &&
-      !settings.maintenance_reason.trim()
+      settingsToSave.maintenance_mode &&
+      !settingsToSave.maintenance_reason.trim()
     ) {
       setErrorMessage(
         "Please enter a maintenance reason."
@@ -204,7 +214,20 @@ export default function AdminSitePage() {
 
       setSaving(false);
 
-      return;
+      return false;
+    }
+
+    if (
+      settingsToSave.maintenance_schedule_enabled &&
+      !settingsToSave.maintenance_starts_at
+    ) {
+      setErrorMessage(
+        "A scheduled maintenance needs a start time."
+      );
+
+      setSaving(false);
+
+      return false;
     }
 
     try {
@@ -224,7 +247,8 @@ export default function AdminSitePage() {
 
             body:
               JSON.stringify({
-                settings,
+                settings:
+                  settingsToSave,
               }),
           }
         );
@@ -243,21 +267,70 @@ export default function AdminSitePage() {
                 "Site settings could not be saved."
         );
 
-        return;
+        return false;
+      }
+
+      if (data?.settings) {
+        setSettings({
+          ...defaultSettings,
+          ...data.settings,
+        });
+      } else {
+        setSettings(
+          settingsToSave
+        );
       }
 
       setMessage(
-        "Site settings saved successfully."
+        customSuccessMessage ??
+          "Site settings saved successfully."
       );
+
+      return true;
     } catch (error) {
       console.error(error);
 
       setErrorMessage(
         "Site settings could not be saved."
       );
+
+      return false;
     } finally {
       setSaving(false);
     }
+  }
+
+  async function endMaintenanceNow() {
+    const confirmed =
+      window.confirm(
+        "End all maintenance now?\n\nThis will disable manual maintenance, cancel scheduled maintenance and clear the maintenance start/end times."
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const nextSettings: SiteSettings =
+      {
+        ...settings,
+
+        maintenance_mode:
+          false,
+
+        maintenance_schedule_enabled:
+          false,
+
+        maintenance_starts_at:
+          "",
+
+        maintenance_ends_at:
+          "",
+      };
+
+    await saveSettings(
+      nextSettings,
+      "Maintenance ended. The website is online."
+    );
   }
 
   function updateText(
@@ -302,9 +375,21 @@ export default function AdminSitePage() {
             60 * 60 * 1000
         );
 
+      const end =
+        new Date(
+          start.getTime() +
+            2 * 60 * 60 * 1000
+        );
+
       setSettings(
         (current) => ({
           ...current,
+
+          maintenance_mode:
+            false,
+
+          maintenance_schedule_enabled:
+            true,
 
           maintenance_reason:
             "Scheduled maintenance",
@@ -315,6 +400,11 @@ export default function AdminSitePage() {
           maintenance_starts_at:
             toDateTimeLocal(
               start
+            ),
+
+          maintenance_ends_at:
+            toDateTimeLocal(
+              end
             ),
         })
       );
@@ -331,19 +421,36 @@ export default function AdminSitePage() {
             30 * 60 * 1000
         );
 
+      const end =
+        new Date(
+          start.getTime() +
+            2 * 60 * 60 * 1000
+        );
+
       setSettings(
         (current) => ({
           ...current,
+
+          maintenance_mode:
+            false,
+
+          maintenance_schedule_enabled:
+            true,
 
           maintenance_reason:
             "Scheduled maintenance",
 
           maintenance_message:
-            "WeWantAgain will enter maintenance mode in approximately 30 minutes.",
+            "WeWantAgain will enter maintenance mode in approximately 30 minutes while we perform platform improvements.",
 
           maintenance_starts_at:
             toDateTimeLocal(
               start
+            ),
+
+          maintenance_ends_at:
+            toDateTimeLocal(
+              end
             ),
         })
       );
@@ -358,6 +465,9 @@ export default function AdminSitePage() {
         maintenance_mode:
           true,
 
+        maintenance_schedule_enabled:
+          false,
+
         maintenance_reason:
           "Emergency maintenance",
 
@@ -368,6 +478,9 @@ export default function AdminSitePage() {
           toDateTimeLocal(
             now
           ),
+
+        maintenance_ends_at:
+          "",
       })
     );
   }
@@ -381,6 +494,10 @@ export default function AdminSitePage() {
       </main>
     );
   }
+
+  const hasMaintenance =
+    settings.maintenance_mode ||
+    settings.maintenance_schedule_enabled;
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">
@@ -496,16 +613,25 @@ export default function AdminSitePage() {
             />
 
             <ToggleCard
-              title="Maintenance mode"
-              description="Block the public website while maintenance is active."
+              title="Manual maintenance"
+              description="Immediately block the public website until an admin turns it off."
               checked={
                 settings.maintenance_mode
               }
               danger
               onChange={(value) =>
-                updateBoolean(
-                  "maintenance_mode",
-                  value
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    maintenance_mode:
+                      value,
+
+                    maintenance_schedule_enabled:
+                      value
+                        ? false
+                        : current.maintenance_schedule_enabled,
+                  })
                 )
               }
             />
@@ -515,43 +641,63 @@ export default function AdminSitePage() {
         {/* MAINTENANCE */}
         <section
           className={`mt-8 rounded-3xl border p-6 shadow-sm sm:p-8 ${
-            settings.maintenance_mode
+            hasMaintenance
               ? "border-red-300 bg-red-50"
               : "border-slate-200 bg-white"
           }`}
         >
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <div className="text-xs font-black uppercase tracking-widest text-red-500">
                 🛠 Maintenance
               </div>
 
               <h2 className="mt-2 text-2xl font-black">
-                Maintenance Mode
+                Maintenance Control
               </h2>
 
               <p className="mt-2 max-w-2xl text-sm text-slate-500">
-                Set the reason users
-                will see and optionally
-                schedule expected start
-                and finish times.
+                Start maintenance
+                immediately or schedule
+                it for a future time.
               </p>
             </div>
 
-            <div
-              className={`rounded-full px-4 py-2 text-xs font-black ${
-                settings.maintenance_mode
-                  ? "bg-red-600 text-white"
-                  : "bg-green-100 text-green-700"
-              }`}
-            >
-              {settings.maintenance_mode
-                ? "MAINTENANCE ACTIVE"
-                : "SITE ONLINE"}
+            <div className="flex flex-wrap gap-2">
+              {settings.maintenance_mode && (
+                <div className="rounded-full bg-red-600 px-4 py-2 text-xs font-black text-white">
+                  MANUAL MAINTENANCE
+                </div>
+              )}
+
+              {settings.maintenance_schedule_enabled && (
+                <div className="rounded-full bg-amber-500 px-4 py-2 text-xs font-black text-white">
+                  SCHEDULE ACTIVE
+                </div>
+              )}
+
+              {!hasMaintenance && (
+                <div className="rounded-full bg-green-100 px-4 py-2 text-xs font-black text-green-700">
+                  SITE ONLINE
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="mt-6 flex flex-wrap gap-3">
+          {hasMaintenance && (
+            <button
+              type="button"
+              onClick={
+                endMaintenanceNow
+              }
+              disabled={saving}
+              className="mt-6 w-full rounded-2xl bg-red-600 px-6 py-4 font-black text-white shadow-lg hover:bg-red-700 disabled:opacity-50 sm:w-auto"
+            >
+              ⛔ END MAINTENANCE NOW
+            </button>
+          )}
+
+          <div className="mt-8 flex flex-wrap gap-3">
             <button
               type="button"
               onClick={() =>
@@ -561,7 +707,7 @@ export default function AdminSitePage() {
               }
               className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black text-amber-700"
             >
-              ⏰ Maintenance in 1 hour
+              ⏰ Schedule in 1 hour
             </button>
 
             <button
@@ -573,7 +719,7 @@ export default function AdminSitePage() {
               }
               className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-black text-orange-700"
             >
-              ⏰ Maintenance in 30 min
+              ⏰ Schedule in 30 min
             </button>
 
             <button
@@ -585,7 +731,7 @@ export default function AdminSitePage() {
               }
               className="rounded-xl bg-red-600 px-4 py-3 text-sm font-black text-white"
             >
-              🚨 Emergency maintenance
+              🚨 Emergency Maintenance Now
             </button>
           </div>
 
@@ -619,7 +765,7 @@ export default function AdminSitePage() {
 
             <div className="grid gap-5 md:grid-cols-2">
               <DateTimeField
-                label="Expected start"
+                label="Maintenance start"
                 value={
                   settings.maintenance_starts_at
                 }
@@ -632,7 +778,7 @@ export default function AdminSitePage() {
               />
 
               <DateTimeField
-                label="Expected finish"
+                label="Automatic end"
                 value={
                   settings.maintenance_ends_at
                 }
@@ -644,6 +790,29 @@ export default function AdminSitePage() {
                 }
               />
             </div>
+
+            <ToggleCard
+              title="Scheduled maintenance enabled"
+              description="When enabled, the site automatically enters maintenance at the start time and returns online at the end time."
+              checked={
+                settings.maintenance_schedule_enabled
+              }
+              onChange={(value) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    maintenance_schedule_enabled:
+                      value,
+
+                    maintenance_mode:
+                      value
+                        ? false
+                        : current.maintenance_mode,
+                  })
+                )
+              }
+            />
           </div>
 
           <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
@@ -681,7 +850,7 @@ export default function AdminSitePage() {
 
                 {settings.maintenance_ends_at && (
                   <div className="rounded-xl bg-slate-100 px-4 py-3 font-bold">
-                    Expected back:{" "}
+                    Automatically ends:{" "}
                     {formatLocalDate(
                       settings.maintenance_ends_at
                     )}
@@ -840,50 +1009,11 @@ export default function AdminSitePage() {
           </div>
         </section>
 
-        {/* HOMEPAGE PREVIEW */}
-        <section className="mt-8 rounded-3xl border border-violet-200 bg-violet-50 p-6 sm:p-8">
-          <div className="text-xs font-black uppercase tracking-widest text-violet-500">
-            Homepage Preview
-          </div>
-
-          <div className="mt-4 inline-flex rounded-full bg-white px-4 py-2 text-sm font-black text-violet-700">
-            {
-              settings.hero_badge
-            }
-          </div>
-
-          <h2 className="mt-5 max-w-4xl text-4xl font-black">
-            {
-              settings.hero_title
-            }
-          </h2>
-
-          <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
-            {
-              settings.hero_description
-            }
-          </p>
-
-          <div className="mt-6 flex flex-wrap gap-3">
-            <div className="rounded-xl bg-violet-600 px-5 py-3 font-black text-white">
-              {
-                settings.hero_primary_button
-              }
-            </div>
-
-            <div className="rounded-xl border border-slate-300 bg-white px-5 py-3 font-black">
-              {
-                settings.hero_secondary_button
-              }
-            </div>
-          </div>
-        </section>
-
         <div className="sticky bottom-4 mt-8">
           <button
             type="button"
-            onClick={
-              saveSettings
+            onClick={() =>
+              saveSettings()
             }
             disabled={saving}
             className="w-full rounded-2xl bg-violet-600 px-6 py-5 text-lg font-black text-white shadow-xl shadow-violet-200 hover:bg-violet-700 disabled:opacity-60"

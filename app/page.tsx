@@ -29,7 +29,9 @@ type SiteSettings = {
   footer_text: string;
   submissions_enabled: boolean;
   support_enabled: boolean;
+
   maintenance_mode: boolean;
+  maintenance_schedule_enabled: boolean;
   maintenance_reason: string;
   maintenance_message: string;
   maintenance_starts_at: string;
@@ -49,7 +51,9 @@ const defaultSiteSettings: SiteSettings = {
   footer_text: "Your Voice. Their Attention.",
   submissions_enabled: true,
   support_enabled: true,
+
   maintenance_mode: false,
+  maintenance_schedule_enabled: false,
   maintenance_reason: "Scheduled maintenance",
   maintenance_message:
     "We are making improvements to WeWantAgain. The website will be available again shortly.",
@@ -79,14 +83,42 @@ export default async function Home({
     ...((siteSettingsRow?.settings as Partial<SiteSettings> | null) ?? {}),
   };
 
-  if (siteSettings.maintenance_mode) {
-    const startsAt = siteSettings.maintenance_starts_at
-      ? new Date(siteSettings.maintenance_starts_at)
-      : null;
+  const nowMs = Date.now();
 
-    const endsAt = siteSettings.maintenance_ends_at
-      ? new Date(siteSettings.maintenance_ends_at)
-      : null;
+  const startsAtMs = siteSettings.maintenance_starts_at
+    ? new Date(siteSettings.maintenance_starts_at).getTime()
+    : null;
+
+  const endsAtMs = siteSettings.maintenance_ends_at
+    ? new Date(siteSettings.maintenance_ends_at).getTime()
+    : null;
+
+  const validStart =
+    startsAtMs !== null && Number.isFinite(startsAtMs);
+
+  const validEnd =
+    endsAtMs !== null && Number.isFinite(endsAtMs);
+
+  const scheduledMaintenanceActive =
+    siteSettings.maintenance_schedule_enabled === true &&
+    validStart &&
+    nowMs >= startsAtMs &&
+    (!validEnd || nowMs < endsAtMs);
+
+  const maintenanceActive =
+    siteSettings.maintenance_mode === true ||
+    scheduledMaintenanceActive;
+
+  if (maintenanceActive) {
+    const startsAt =
+      validStart && startsAtMs !== null
+        ? new Date(startsAtMs)
+        : null;
+
+    const endsAt =
+      validEnd && endsAtMs !== null
+        ? new Date(endsAtMs)
+        : null;
 
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 py-12 text-white">
@@ -108,22 +140,24 @@ export default async function Home({
 
           {(startsAt || endsAt) && (
             <div className="mt-8 grid gap-3 sm:grid-cols-2">
-              {startsAt && !Number.isNaN(startsAt.getTime()) && (
+              {startsAt && (
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                   <div className="text-xs font-black uppercase tracking-wider text-slate-400">
-                    Started / Starts
+                    Started
                   </div>
+
                   <div className="mt-2 font-bold">
                     {startsAt.toLocaleString()}
                   </div>
                 </div>
               )}
 
-              {endsAt && !Number.isNaN(endsAt.getTime()) && (
+              {endsAt && (
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                   <div className="text-xs font-black uppercase tracking-wider text-slate-400">
                     Expected Back
                   </div>
+
                   <div className="mt-2 font-bold">
                     {endsAt.toLocaleString()}
                   </div>
@@ -133,12 +167,26 @@ export default async function Home({
           )}
 
           <div className="mt-8 text-sm text-slate-500">
-            WEWANT<span className="font-black text-violet-400">AGAIN</span>
+            WEWANT
+            <span className="font-black text-violet-400">
+              AGAIN
+            </span>
           </div>
         </div>
       </main>
     );
   }
+
+  const scheduledMaintenanceUpcoming =
+    siteSettings.maintenance_schedule_enabled === true &&
+    validStart &&
+    startsAtMs !== null &&
+    nowMs < startsAtMs &&
+    (!validEnd || nowMs < endsAtMs);
+
+  const maintenanceCountdownText = scheduledMaintenanceUpcoming
+    ? formatMaintenanceCountdown(startsAtMs - nowMs)
+    : null;
 
   const selectedCategory =
     typeof params.category === "string"
@@ -223,6 +271,27 @@ export default async function Home({
   return (
     <main className="min-h-screen bg-white text-slate-950">
       <Header />
+
+      {scheduledMaintenanceUpcoming && (
+        <section className="border-b border-amber-200 bg-amber-50">
+          <div className="mx-auto flex max-w-7xl flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-sm font-black text-amber-900">
+                🛠️ Scheduled maintenance
+              </div>
+
+              <p className="mt-1 text-sm text-amber-800">
+                {siteSettings.maintenance_message ||
+                  "WeWantAgain will enter maintenance mode soon."}
+              </p>
+            </div>
+
+            <div className="shrink-0 rounded-xl bg-white px-4 py-3 text-center text-sm font-black text-amber-800 shadow-sm">
+              {maintenanceCountdownText}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* HERO */}
       <section className="relative overflow-hidden border-b border-violet-100 bg-gradient-to-b from-violet-50 via-indigo-50/70 to-white">
@@ -752,6 +821,32 @@ export default async function Home({
       </footer>
     </main>
   );
+}
+
+function formatMaintenanceCountdown(
+  milliseconds: number
+) {
+  const totalMinutes = Math.max(
+    1,
+    Math.ceil(milliseconds / 60000)
+  );
+
+  if (totalMinutes < 60) {
+    return `Starts in ${totalMinutes} min`;
+  }
+
+  const hours = Math.floor(
+    totalMinutes / 60
+  );
+
+  const minutes =
+    totalMinutes % 60;
+
+  if (minutes === 0) {
+    return `Starts in ${hours}h`;
+  }
+
+  return `Starts in ${hours}h ${minutes}m`;
 }
 
 function CampaignImage({

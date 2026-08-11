@@ -296,6 +296,10 @@ export async function POST(
         settings.maintenance_mode ===
         true,
 
+      maintenance_schedule_enabled:
+        settings.maintenance_schedule_enabled ===
+        true,
+
       maintenance_reason:
         typeof settings.maintenance_reason ===
         "string"
@@ -330,12 +334,59 @@ export async function POST(
       return NextResponse.json(
         {
           error:
-            "Maintenance reason is required while maintenance mode is enabled.",
+            "Maintenance reason is required while manual maintenance is enabled.",
         },
         {
           status: 400,
         }
       );
+    }
+
+    if (
+      cleanedSettings.maintenance_schedule_enabled &&
+      !cleanedSettings.maintenance_starts_at
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Scheduled maintenance requires a start time.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    if (
+      cleanedSettings.maintenance_schedule_enabled &&
+      cleanedSettings.maintenance_starts_at &&
+      cleanedSettings.maintenance_ends_at
+    ) {
+      const startTime =
+        new Date(
+          cleanedSettings.maintenance_starts_at
+        ).getTime();
+
+      const endTime =
+        new Date(
+          cleanedSettings.maintenance_ends_at
+        ).getTime();
+
+      if (
+        Number.isFinite(startTime) &&
+        Number.isFinite(endTime) &&
+        endTime <= startTime
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Maintenance end time must be after the start time.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
     }
 
     const now =
@@ -440,24 +491,56 @@ export async function POST(
           >
         : {};
 
-    const maintenanceChanged =
-      previousSettings.maintenance_mode !==
-      cleanedSettings.maintenance_mode;
+    const previousManual =
+      previousSettings.maintenance_mode ===
+      true;
+
+    const previousSchedule =
+      previousSettings.maintenance_schedule_enabled ===
+      true;
+
+    let auditAction =
+      "update-site-settings";
+
+    if (
+      !previousManual &&
+      cleanedSettings.maintenance_mode
+    ) {
+      auditAction =
+        "maintenance-enabled";
+    } else if (
+      previousManual &&
+      !cleanedSettings.maintenance_mode
+    ) {
+      auditAction =
+        "maintenance-disabled";
+    } else if (
+      !previousSchedule &&
+      cleanedSettings.maintenance_schedule_enabled
+    ) {
+      auditAction =
+        "maintenance-scheduled";
+    } else if (
+      previousSchedule &&
+      !cleanedSettings.maintenance_schedule_enabled
+    ) {
+      auditAction =
+        "maintenance-schedule-cancelled";
+    }
 
     await writeAuditLog({
       adminUserId:
         auth.user.id,
 
       action:
-        maintenanceChanged
-          ? cleanedSettings.maintenance_mode
-            ? "maintenance-enabled"
-            : "maintenance-disabled"
-          : "update-site-settings",
+        auditAction,
 
       details: {
         maintenance_mode:
           cleanedSettings.maintenance_mode,
+
+        maintenance_schedule_enabled:
+          cleanedSettings.maintenance_schedule_enabled,
 
         maintenance_reason:
           cleanedSettings.maintenance_reason ||
