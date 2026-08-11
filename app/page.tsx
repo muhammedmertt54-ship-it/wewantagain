@@ -86,11 +86,11 @@ export default async function Home({
   const nowMs = Date.now();
 
   const startsAtMs = siteSettings.maintenance_starts_at
-    ? new Date(siteSettings.maintenance_starts_at).getTime()
+    ? parseTurkeyDateTime(siteSettings.maintenance_starts_at)
     : null;
 
   const endsAtMs = siteSettings.maintenance_ends_at
-    ? new Date(siteSettings.maintenance_ends_at).getTime()
+    ? parseTurkeyDateTime(siteSettings.maintenance_ends_at)
     : null;
 
   const validStart =
@@ -821,6 +821,26 @@ export default async function Home({
       </footer>
     </main>
   );
+}
+
+function parseTurkeyDateTime(
+  value: string
+) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return NaN;
+  }
+
+  const hasTimezone =
+    /(?:Z|[+-]\d{2}:?\d{2})$/i.test(trimmed);
+
+  const normalized =
+    hasTimezone
+      ? trimmed
+      : `${trimmed}:00+03:00`;
+
+  return new Date(normalized).getTime();
 }
 
 function formatMaintenanceCountdown(
