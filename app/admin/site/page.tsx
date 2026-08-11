@@ -18,11 +18,17 @@ type SiteSettings = {
 
   submissions_enabled: boolean;
   support_enabled: boolean;
+
   maintenance_mode: boolean;
+  maintenance_reason: string;
+  maintenance_message: string;
+  maintenance_starts_at: string;
+  maintenance_ends_at: string;
 };
 
 const defaultSettings: SiteSettings = {
-  hero_badge: "🌍 Make your voice heard worldwide",
+  hero_badge:
+    "🌍 Make your voice heard worldwide",
 
   hero_title:
     "Bring back the shows, movies and games you love.",
@@ -50,7 +56,17 @@ const defaultSettings: SiteSettings = {
 
   submissions_enabled: true,
   support_enabled: true,
+
   maintenance_mode: false,
+
+  maintenance_reason:
+    "Scheduled maintenance",
+
+  maintenance_message:
+    "We are making improvements to WeWantAgain. The website will be available again shortly.",
+
+  maintenance_starts_at: "",
+  maintenance_ends_at: "",
 };
 
 export default function AdminSitePage() {
@@ -126,10 +142,8 @@ export default function AdminSitePage() {
 
       if (!response.ok) {
         if (
-          response.status ===
-            401 ||
-          response.status ===
-            403
+          response.status === 401 ||
+          response.status === 403
         ) {
           window.location.href =
             "/admin";
@@ -173,6 +187,19 @@ export default function AdminSitePage() {
     if (!token) {
       setErrorMessage(
         "Admin session expired."
+      );
+
+      setSaving(false);
+
+      return;
+    }
+
+    if (
+      settings.maintenance_mode &&
+      !settings.maintenance_reason.trim()
+    ) {
+      setErrorMessage(
+        "Please enter a maintenance reason."
       );
 
       setSaving(false);
@@ -257,6 +284,94 @@ export default function AdminSitePage() {
     );
   }
 
+  function setMaintenancePreset(
+    preset:
+      | "1-hour"
+      | "30-min"
+      | "emergency"
+  ) {
+    const now =
+      new Date();
+
+    if (
+      preset === "1-hour"
+    ) {
+      const start =
+        new Date(
+          now.getTime() +
+            60 * 60 * 1000
+        );
+
+      setSettings(
+        (current) => ({
+          ...current,
+
+          maintenance_reason:
+            "Scheduled maintenance",
+
+          maintenance_message:
+            "WeWantAgain will enter maintenance mode in approximately 1 hour while we perform platform improvements.",
+
+          maintenance_starts_at:
+            toDateTimeLocal(
+              start
+            ),
+        })
+      );
+
+      return;
+    }
+
+    if (
+      preset === "30-min"
+    ) {
+      const start =
+        new Date(
+          now.getTime() +
+            30 * 60 * 1000
+        );
+
+      setSettings(
+        (current) => ({
+          ...current,
+
+          maintenance_reason:
+            "Scheduled maintenance",
+
+          maintenance_message:
+            "WeWantAgain will enter maintenance mode in approximately 30 minutes.",
+
+          maintenance_starts_at:
+            toDateTimeLocal(
+              start
+            ),
+        })
+      );
+
+      return;
+    }
+
+    setSettings(
+      (current) => ({
+        ...current,
+
+        maintenance_mode:
+          true,
+
+        maintenance_reason:
+          "Emergency maintenance",
+
+        maintenance_message:
+          "WeWantAgain is temporarily unavailable while we resolve a technical issue.",
+
+        maintenance_starts_at:
+          toDateTimeLocal(
+            now
+          ),
+      })
+    );
+  }
+
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50">
@@ -293,6 +408,13 @@ export default function AdminSitePage() {
             </a>
 
             <a
+              href="/admin/audit"
+              className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700"
+            >
+              🛡 Audit Logs
+            </a>
+
+            <a
               href="/"
               target="_blank"
               rel="noreferrer"
@@ -315,8 +437,9 @@ export default function AdminSitePage() {
           </h1>
 
           <p className="mt-2 max-w-2xl text-slate-500">
-            Control public site text and platform-wide switches
-            from the admin panel.
+            Manage public content,
+            platform controls and
+            maintenance settings.
           </p>
         </div>
 
@@ -332,20 +455,21 @@ export default function AdminSitePage() {
           </div>
         )}
 
-        {/* PLATFORM SWITCHES */}
+        {/* PLATFORM */}
         <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
           <h2 className="text-2xl font-black">
             Platform Controls
           </h2>
 
           <p className="mt-2 text-sm text-slate-500">
-            Global switches for important site functions.
+            Global switches for
+            important site features.
           </p>
 
           <div className="mt-6 grid gap-4 lg:grid-cols-3">
             <ToggleCard
               title="Campaign submissions"
-              description="Allow users to create new demands."
+              description="Allow users to create new campaigns."
               checked={
                 settings.submissions_enabled
               }
@@ -359,7 +483,7 @@ export default function AdminSitePage() {
 
             <ToggleCard
               title="Campaign support"
-              description="Allow visitors to support campaigns."
+              description="Allow users to support campaigns."
               checked={
                 settings.support_enabled
               }
@@ -373,7 +497,7 @@ export default function AdminSitePage() {
 
             <ToggleCard
               title="Maintenance mode"
-              description="Temporarily put the public site into maintenance mode."
+              description="Block the public website while maintenance is active."
               checked={
                 settings.maintenance_mode
               }
@@ -388,15 +512,191 @@ export default function AdminSitePage() {
           </div>
         </section>
 
+        {/* MAINTENANCE */}
+        <section
+          className={`mt-8 rounded-3xl border p-6 shadow-sm sm:p-8 ${
+            settings.maintenance_mode
+              ? "border-red-300 bg-red-50"
+              : "border-slate-200 bg-white"
+          }`}
+        >
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="text-xs font-black uppercase tracking-widest text-red-500">
+                🛠 Maintenance
+              </div>
+
+              <h2 className="mt-2 text-2xl font-black">
+                Maintenance Mode
+              </h2>
+
+              <p className="mt-2 max-w-2xl text-sm text-slate-500">
+                Set the reason users
+                will see and optionally
+                schedule expected start
+                and finish times.
+              </p>
+            </div>
+
+            <div
+              className={`rounded-full px-4 py-2 text-xs font-black ${
+                settings.maintenance_mode
+                  ? "bg-red-600 text-white"
+                  : "bg-green-100 text-green-700"
+              }`}
+            >
+              {settings.maintenance_mode
+                ? "MAINTENANCE ACTIVE"
+                : "SITE ONLINE"}
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() =>
+                setMaintenancePreset(
+                  "1-hour"
+                )
+              }
+              className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black text-amber-700"
+            >
+              ⏰ Maintenance in 1 hour
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                setMaintenancePreset(
+                  "30-min"
+                )
+              }
+              className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-black text-orange-700"
+            >
+              ⏰ Maintenance in 30 min
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                setMaintenancePreset(
+                  "emergency"
+                )
+              }
+              className="rounded-xl bg-red-600 px-4 py-3 text-sm font-black text-white"
+            >
+              🚨 Emergency maintenance
+            </button>
+          </div>
+
+          <div className="mt-8 grid gap-6">
+            <TextField
+              label="Maintenance reason"
+              value={
+                settings.maintenance_reason
+              }
+              onChange={(value) =>
+                updateText(
+                  "maintenance_reason",
+                  value
+                )
+              }
+            />
+
+            <TextAreaField
+              label="Message shown to visitors"
+              value={
+                settings.maintenance_message
+              }
+              maxLength={600}
+              onChange={(value) =>
+                updateText(
+                  "maintenance_message",
+                  value
+                )
+              }
+            />
+
+            <div className="grid gap-5 md:grid-cols-2">
+              <DateTimeField
+                label="Expected start"
+                value={
+                  settings.maintenance_starts_at
+                }
+                onChange={(value) =>
+                  updateText(
+                    "maintenance_starts_at",
+                    value
+                  )
+                }
+              />
+
+              <DateTimeField
+                label="Expected finish"
+                value={
+                  settings.maintenance_ends_at
+                }
+                onChange={(value) =>
+                  updateText(
+                    "maintenance_ends_at",
+                    value
+                  )
+                }
+              />
+            </div>
+          </div>
+
+          <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
+            <div className="text-xs font-black uppercase tracking-widest text-slate-400">
+              Visitor Preview
+            </div>
+
+            <div className="mt-5 text-4xl">
+              🛠️
+            </div>
+
+            <h3 className="mt-4 text-3xl font-black">
+              {
+                settings.maintenance_reason
+              }
+            </h3>
+
+            <p className="mt-3 max-w-2xl leading-7 text-slate-600">
+              {
+                settings.maintenance_message
+              }
+            </p>
+
+            {(settings.maintenance_starts_at ||
+              settings.maintenance_ends_at) && (
+              <div className="mt-5 flex flex-wrap gap-3 text-sm">
+                {settings.maintenance_starts_at && (
+                  <div className="rounded-xl bg-slate-100 px-4 py-3 font-bold">
+                    Starts:{" "}
+                    {formatLocalDate(
+                      settings.maintenance_starts_at
+                    )}
+                  </div>
+                )}
+
+                {settings.maintenance_ends_at && (
+                  <div className="rounded-xl bg-slate-100 px-4 py-3 font-bold">
+                    Expected back:{" "}
+                    {formatLocalDate(
+                      settings.maintenance_ends_at
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+
         {/* HERO */}
         <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
           <h2 className="text-2xl font-black">
             Homepage Hero
           </h2>
-
-          <p className="mt-2 text-sm text-slate-500">
-            Main text visitors see when opening the website.
-          </p>
 
           <div className="mt-6 grid gap-6">
             <TextField
@@ -540,22 +840,28 @@ export default function AdminSitePage() {
           </div>
         </section>
 
-        {/* PREVIEW */}
+        {/* HOMEPAGE PREVIEW */}
         <section className="mt-8 rounded-3xl border border-violet-200 bg-violet-50 p-6 sm:p-8">
           <div className="text-xs font-black uppercase tracking-widest text-violet-500">
-            Preview
+            Homepage Preview
           </div>
 
           <div className="mt-4 inline-flex rounded-full bg-white px-4 py-2 text-sm font-black text-violet-700">
-            {settings.hero_badge}
+            {
+              settings.hero_badge
+            }
           </div>
 
           <h2 className="mt-5 max-w-4xl text-4xl font-black">
-            {settings.hero_title}
+            {
+              settings.hero_title
+            }
           </h2>
 
           <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
-            {settings.hero_description}
+            {
+              settings.hero_description
+            }
           </p>
 
           <div className="mt-6 flex flex-wrap gap-3">
@@ -662,6 +968,37 @@ function TextAreaField({
   );
 }
 
+function DateTimeField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (
+    value: string
+  ) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="text-sm font-black">
+        {label}
+      </span>
+
+      <input
+        type="datetime-local"
+        value={value}
+        onChange={(event) =>
+          onChange(
+            event.target.value
+          )
+        }
+        className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 outline-none focus:border-violet-500 focus:bg-white"
+      />
+    </label>
+  );
+}
+
 function ToggleCard({
   title,
   description,
@@ -716,4 +1053,33 @@ function ToggleCard({
       </p>
     </button>
   );
+}
+
+function toDateTimeLocal(
+  date: Date
+) {
+  const offset =
+    date.getTimezoneOffset();
+
+  const local =
+    new Date(
+      date.getTime() -
+        offset * 60 * 1000
+    );
+
+  return local
+    .toISOString()
+    .slice(0, 16);
+}
+
+function formatLocalDate(
+  value: string
+) {
+  try {
+    return new Date(
+      value
+    ).toLocaleString();
+  } catch {
+    return value;
+  }
 }

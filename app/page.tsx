@@ -30,6 +30,10 @@ type SiteSettings = {
   submissions_enabled: boolean;
   support_enabled: boolean;
   maintenance_mode: boolean;
+  maintenance_reason: string;
+  maintenance_message: string;
+  maintenance_starts_at: string;
+  maintenance_ends_at: string;
 };
 
 const defaultSiteSettings: SiteSettings = {
@@ -42,10 +46,15 @@ const defaultSiteSettings: SiteSettings = {
   trending_title: "🔥 TRENDING NOW",
   most_wanted_title: "🏆 MOST WANTED",
   categories_title: "★ BROWSE BY CATEGORY",
-  footer_text: "{siteSettings.footer_text}",
+  footer_text: "Your Voice. Their Attention.",
   submissions_enabled: true,
   support_enabled: true,
   maintenance_mode: false,
+  maintenance_reason: "Scheduled maintenance",
+  maintenance_message:
+    "We are making improvements to WeWantAgain. The website will be available again shortly.",
+  maintenance_starts_at: "",
+  maintenance_ends_at: "",
 };
 
 type HomeProps = {
@@ -71,14 +80,61 @@ export default async function Home({
   };
 
   if (siteSettings.maintenance_mode) {
+    const startsAt = siteSettings.maintenance_starts_at
+      ? new Date(siteSettings.maintenance_starts_at)
+      : null;
+
+    const endsAt = siteSettings.maintenance_ends_at
+      ? new Date(siteSettings.maintenance_ends_at)
+      : null;
+
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white">
-        <div className="max-w-xl text-center">
-          <div className="text-5xl">🛠️</div>
-          <h1 className="mt-6 text-4xl font-black">We&apos;ll be back soon.</h1>
-          <p className="mt-4 text-lg text-slate-300">
-            WeWantAgain is temporarily under maintenance.
+      <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 py-12 text-white">
+        <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-white/5 p-8 text-center shadow-2xl backdrop-blur sm:p-12">
+          <div className="text-6xl">🛠️</div>
+
+          <div className="mt-6 inline-flex rounded-full border border-amber-400/20 bg-amber-400/10 px-4 py-2 text-xs font-black uppercase tracking-widest text-amber-300">
+            Maintenance Mode
+          </div>
+
+          <h1 className="mt-6 text-4xl font-black sm:text-5xl">
+            {siteSettings.maintenance_reason || "Scheduled maintenance"}
+          </h1>
+
+          <p className="mx-auto mt-5 max-w-xl text-lg leading-8 text-slate-300">
+            {siteSettings.maintenance_message ||
+              "We are making improvements to WeWantAgain. Please check back shortly."}
           </p>
+
+          {(startsAt || endsAt) && (
+            <div className="mt-8 grid gap-3 sm:grid-cols-2">
+              {startsAt && !Number.isNaN(startsAt.getTime()) && (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div className="text-xs font-black uppercase tracking-wider text-slate-400">
+                    Started / Starts
+                  </div>
+                  <div className="mt-2 font-bold">
+                    {startsAt.toLocaleString()}
+                  </div>
+                </div>
+              )}
+
+              {endsAt && !Number.isNaN(endsAt.getTime()) && (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div className="text-xs font-black uppercase tracking-wider text-slate-400">
+                    Expected Back
+                  </div>
+                  <div className="mt-2 font-bold">
+                    {endsAt.toLocaleString()}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="mt-8 text-sm text-slate-500">
+            WEWANT<span className="font-black text-violet-400">AGAIN</span>
+          </div>
         </div>
       </main>
     );
@@ -595,7 +651,7 @@ export default async function Home({
             </div>
 
             <p className="mt-3 text-sm text-slate-500">
-              Your Voice. Their Attention.
+              {siteSettings.footer_text}
             </p>
           </div>
 

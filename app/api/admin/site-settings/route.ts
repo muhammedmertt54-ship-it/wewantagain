@@ -82,6 +82,33 @@ async function writeAuditLog({
   }
 }
 
+function cleanDateTime(
+  value: unknown
+) {
+  if (
+    typeof value !== "string" ||
+    !value.trim()
+  ) {
+    return "";
+  }
+
+  const trimmed =
+    value.trim();
+
+  const parsed =
+    new Date(trimmed);
+
+  if (
+    Number.isNaN(
+      parsed.getTime()
+    )
+  ) {
+    return "";
+  }
+
+  return trimmed;
+}
+
 export async function GET(
   request: NextRequest
 ) {
@@ -268,7 +295,48 @@ export async function POST(
       maintenance_mode:
         settings.maintenance_mode ===
         true,
+
+      maintenance_reason:
+        typeof settings.maintenance_reason ===
+        "string"
+          ? settings.maintenance_reason
+              .trim()
+              .slice(0, 200)
+          : "",
+
+      maintenance_message:
+        typeof settings.maintenance_message ===
+        "string"
+          ? settings.maintenance_message
+              .trim()
+              .slice(0, 600)
+          : "",
+
+      maintenance_starts_at:
+        cleanDateTime(
+          settings.maintenance_starts_at
+        ),
+
+      maintenance_ends_at:
+        cleanDateTime(
+          settings.maintenance_ends_at
+        ),
     };
+
+    if (
+      cleanedSettings.maintenance_mode &&
+      !cleanedSettings.maintenance_reason
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Maintenance reason is required while maintenance mode is enabled.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
 
     const now =
       new Date().toISOString();
@@ -278,7 +346,9 @@ export async function POST(
       error: existingError,
     } = await supabaseAdmin
       .from("site_settings")
-      .select("id")
+      .select(
+        "id, settings"
+      )
       .limit(1)
       .maybeSingle();
 
@@ -360,16 +430,50 @@ export async function POST(
       );
     }
 
+    const previousSettings =
+      existing?.settings &&
+      typeof existing.settings ===
+        "object"
+        ? existing.settings as Record<
+            string,
+            unknown
+          >
+        : {};
+
+    const maintenanceChanged =
+      previousSettings.maintenance_mode !==
+      cleanedSettings.maintenance_mode;
+
     await writeAuditLog({
       adminUserId:
         auth.user.id,
 
       action:
-        "update-site-settings",
+        maintenanceChanged
+          ? cleanedSettings.maintenance_mode
+            ? "maintenance-enabled"
+            : "maintenance-disabled"
+          : "update-site-settings",
 
       details: {
         maintenance_mode:
           cleanedSettings.maintenance_mode,
+
+        maintenance_reason:
+          cleanedSettings.maintenance_reason ||
+          null,
+
+        maintenance_message:
+          cleanedSettings.maintenance_message ||
+          null,
+
+        maintenance_starts_at:
+          cleanedSettings.maintenance_starts_at ||
+          null,
+
+        maintenance_ends_at:
+          cleanedSettings.maintenance_ends_at ||
+          null,
 
         submissions_enabled:
           cleanedSettings.submissions_enabled,
@@ -381,6 +485,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
+
       settings:
         cleanedSettings,
     });
