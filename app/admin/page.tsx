@@ -726,6 +726,13 @@ export default function AdminPage() {
             </a>
 
             <a
+              href="/admin/notifications"
+              className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-black text-violet-700 hover:bg-violet-100"
+            >
+              🔔 Notifications
+            </a>
+
+            <a
               href="/"
               className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold hover:border-violet-300"
             >

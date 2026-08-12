@@ -1,5 +1,6 @@
 import Header from "./Header";
 import SearchBox from "./SearchBox";
+import GlobalNotifications from "../components/GlobalNotifications";
 import { supabase } from "../lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -271,6 +272,7 @@ export default async function Home({
   return (
     <main className="min-h-screen bg-white text-slate-950">
       <Header />
+<GlobalNotifications />
 
       {scheduledMaintenanceUpcoming && (
         <section className="border-b border-amber-200 bg-amber-50">
