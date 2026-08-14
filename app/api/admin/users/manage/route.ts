@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
+import {
+  AdminRole,
+  requireAdminRole,
+} from "../../../../../lib/admin/requireAdminRole";
 
 type UserAction =
   | "ban-user"
@@ -9,59 +13,8 @@ type UserAction =
   | "unban-ip"
   | "force-logout"
   | "make-admin"
-  | "remove-admin";
-
-async function requireAdmin(request: NextRequest) {
-  const authorization =
-    request.headers.get("authorization");
-
-  if (!authorization?.startsWith("Bearer ")) {
-    return {
-      error: NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      ),
-    };
-  }
-
-  const accessToken = authorization.slice(7);
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabaseAdmin.auth.getUser(accessToken);
-
-  if (userError || !user) {
-    return {
-      error: NextResponse.json(
-        { error: "Invalid session" },
-        { status: 401 }
-      ),
-    };
-  }
-
-  const {
-    data: adminRow,
-    error: adminError,
-  } = await supabaseAdmin
-    .from("admins")
-    .select("user_id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (adminError || !adminRow) {
-    return {
-      error: NextResponse.json(
-        { error: "Admin access required" },
-        { status: 403 }
-      ),
-    };
-  }
-
-  return {
-    user,
-  };
-}
+  | "remove-admin"
+  | "set-admin-role";
 
 async function writeAuditLog({
   adminUserId,
@@ -91,13 +44,132 @@ async function writeAuditLog({
   }
 }
 
+
+const VALID_ADMIN_ROLES: AdminRole[] = [
+  "owner",
+  "admin",
+  "moderator",
+];
+
+function isAdminRole(
+  value: unknown
+): value is AdminRole {
+  return (
+    typeof value === "string" &&
+    VALID_ADMIN_ROLES.includes(
+      value as AdminRole
+    )
+  );
+}
+
+function actionAllowedForRole(
+  role: AdminRole,
+  action: UserAction
+) {
+  if (role === "owner") {
+    return true;
+  }
+
+  if (role === "admin") {
+    return [
+      "ban-user",
+      "unban-user",
+      "ban-ip",
+      "unban-ip",
+      "force-logout",
+    ].includes(action);
+  }
+
+  return [
+    "ban-user",
+    "unban-user",
+    "force-logout",
+  ].includes(action);
+}
+
+async function getTargetAdminRole(
+  userId: string
+): Promise<AdminRole | null> {
+  if (!userId) {
+    return null;
+  }
+
+  const {
+    data,
+    error,
+  } = await supabaseAdmin
+    .from("admins")
+    .select("role")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    console.error(
+      "Target admin role lookup error:",
+      error
+    );
+
+    throw new Error(
+      "Target admin role could not be verified."
+    );
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  if (!isAdminRole(data.role)) {
+    throw new Error(
+      "Target account has an invalid admin role."
+    );
+  }
+
+  return data.role;
+}
+
+function canManageTargetAdmin({
+  actorRole,
+  targetRole,
+}: {
+  actorRole: AdminRole;
+  targetRole: AdminRole | null;
+}) {
+  if (!targetRole) {
+    return true;
+  }
+
+  if (targetRole === "owner") {
+    return false;
+  }
+
+  if (actorRole === "owner") {
+    return true;
+  }
+
+  if (
+    actorRole === "admin" &&
+    targetRole === "moderator"
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const auth =
-      await requireAdmin(request);
+      await requireAdminRole(
+        request,
+        [
+          "owner",
+          "admin",
+          "moderator",
+        ]
+      );
 
-    if ("error" in auth) {
-      return auth.error;
+    if (!auth.ok) {
+      return auth.response;
     }
 
     const body = await request.json();
@@ -122,6 +194,11 @@ export async function POST(request: NextRequest) {
         ? body.reason.trim()
         : "";
 
+    const requestedRole =
+      typeof body?.role === "string"
+        ? body.role.trim()
+        : "";
+
     const allowedActions: UserAction[] = [
       "ban-user",
       "unban-user",
@@ -131,6 +208,7 @@ export async function POST(request: NextRequest) {
       "force-logout",
       "make-admin",
       "remove-admin",
+      "set-admin-role",
     ];
 
     if (
@@ -140,6 +218,82 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Invalid action." },
         { status: 400 }
+      );
+    }
+
+
+    if (
+      !actionAllowedForRole(
+        auth.admin.role,
+        action
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Your admin role does not have permission to perform this action.",
+          role:
+            auth.admin.role,
+          action,
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    let targetAdminRole:
+      AdminRole | null = null;
+
+    if (userId) {
+      try {
+        targetAdminRole =
+          await getTargetAdminRole(
+            userId
+          );
+      } catch (error) {
+        console.error(error);
+
+        return NextResponse.json(
+          {
+            error:
+              "Target admin role could not be verified.",
+          },
+          {
+            status: 500,
+          }
+        );
+      }
+    }
+
+    const protectedUserActions:
+      UserAction[] = [
+        "ban-user",
+        "unban-user",
+        "delete-user",
+        "force-logout",
+      ];
+
+    if (
+      userId &&
+      protectedUserActions.includes(
+        action
+      ) &&
+      !canManageTargetAdmin({
+        actorRole:
+          auth.admin.role,
+        targetRole:
+          targetAdminRole,
+      })
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Your role cannot manage this admin account.",
+        },
+        {
+          status: 403,
+        }
       );
     }
 
@@ -193,7 +347,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Açık oturumları da uygulama tarafında iptal et.
+      // AÃ§Ä±k oturumlarÄ± da uygulama tarafÄ±nda iptal et.
       const revokedBefore =
         new Date().toISOString();
 
@@ -478,6 +632,21 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      if (
+        targetAdminRole ===
+        "owner"
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Owner role cannot be changed through this action.",
+          },
+          {
+            status: 403,
+          }
+        );
+      }
+
       const {
         error: makeAdminError,
       } = await supabaseAdmin
@@ -486,6 +655,8 @@ export async function POST(request: NextRequest) {
           {
             user_id:
               userId,
+            role:
+              "admin",
           },
           {
             onConflict:
@@ -517,11 +688,149 @@ export async function POST(request: NextRequest) {
           userId,
         action:
           "make-admin",
+        details: {
+          previous_role:
+            targetAdminRole,
+          new_role:
+            "admin",
+          actor_role:
+            auth.admin.role,
+        },
       });
 
       return NextResponse.json({
         success: true,
         action: "make-admin",
+      });
+    }
+
+
+    // SET ADMIN ROLE
+    if (
+      action ===
+      "set-admin-role"
+    ) {
+      if (!userId) {
+        return NextResponse.json(
+          {
+            error:
+              "User ID is required.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      if (
+        userId ===
+        auth.user.id
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "You cannot change your own owner role.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      if (
+        requestedRole !==
+          "admin" &&
+        requestedRole !==
+          "moderator"
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Role must be admin or moderator.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      if (
+        targetAdminRole ===
+        "owner"
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Owner role cannot be changed.",
+          },
+          {
+            status: 403,
+          }
+        );
+      }
+
+      const {
+        error:
+          roleUpdateError,
+      } = await supabaseAdmin
+        .from("admins")
+        .upsert(
+          {
+            user_id:
+              userId,
+            role:
+              requestedRole,
+          },
+          {
+            onConflict:
+              "user_id",
+          }
+        );
+
+      if (
+        roleUpdateError
+      ) {
+        console.error(
+          "Admin role update error:",
+          roleUpdateError
+        );
+
+        return NextResponse.json(
+          {
+            error:
+              "Admin role could not be updated.",
+            details:
+              roleUpdateError.message,
+          },
+          {
+            status: 500,
+          }
+        );
+      }
+
+      await writeAuditLog({
+        adminUserId:
+          auth.user.id,
+        targetUserId:
+          userId,
+        action:
+          "set-admin-role",
+        details: {
+          previous_role:
+            targetAdminRole,
+          new_role:
+            requestedRole,
+          actor_role:
+            auth.admin.role,
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        action:
+          "set-admin-role",
+        role:
+          requestedRole,
       });
     }
 
@@ -544,6 +853,21 @@ export async function POST(request: NextRequest) {
               "You cannot remove your own admin permission.",
           },
           { status: 400 }
+        );
+      }
+
+      if (
+        targetAdminRole ===
+        "owner"
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Owner permission cannot be removed.",
+          },
+          {
+            status: 403,
+          }
         );
       }
 
@@ -581,6 +905,12 @@ export async function POST(request: NextRequest) {
           userId,
         action:
           "remove-admin",
+        details: {
+          removed_role:
+            targetAdminRole,
+          actor_role:
+            auth.admin.role,
+        },
       });
 
       return NextResponse.json({

@@ -1,61 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
-
-async function requireAdmin(request: NextRequest) {
-  const authorization = request.headers.get("authorization");
-
-  if (!authorization?.startsWith("Bearer ")) {
-    return {
-      error: NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      ),
-    };
-  }
-
-  const accessToken = authorization.slice(7);
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabaseAdmin.auth.getUser(accessToken);
-
-  if (userError || !user) {
-    return {
-      error: NextResponse.json(
-        { error: "Invalid session" },
-        { status: 401 }
-      ),
-    };
-  }
-
-  const { data: adminRow, error: adminError } =
-    await supabaseAdmin
-      .from("admins")
-      .select("user_id")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-  if (adminError || !adminRow) {
-    return {
-      error: NextResponse.json(
-        { error: "Admin access required" },
-        { status: 403 }
-      ),
-    };
-  }
-
-  return {
-    user,
-  };
-}
+import {
+  requireAdminRole,
+  type AdminRole,
+} from "../../../../lib/admin/requireAdminRole";
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = await requireAdmin(request);
+    const auth = await requireAdminRole(request, [
+      "owner",
+      "admin",
+      "moderator",
+    ]);
 
-    if ("error" in auth) {
-      return auth.error;
+    if (!auth.ok) {
+      return auth.response;
     }
 
     const {
@@ -83,11 +42,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const authUsers = authData.users ?? [];
+    const authUsers =
+      authData.users ?? [];
 
-    const userIds = authUsers.map(
-      (user) => user.id
-    );
+    const userIds =
+      authUsers.map(
+        (user) =>
+          user.id
+      );
 
     let profiles: {
       user_id: string;
@@ -97,6 +59,7 @@ export async function GET(request: NextRequest) {
 
     let admins: {
       user_id: string;
+      role: AdminRole;
     }[] = [];
 
     let userIps: {
@@ -107,120 +70,221 @@ export async function GET(request: NextRequest) {
       last_seen_at: string;
     }[] = [];
 
-    if (userIds.length > 0) {
+    if (
+      userIds.length > 0
+    ) {
       const {
-        data: profileRows,
-        error: profileError,
-      } = await supabaseAdmin
-        .from("profiles")
-        .select(
-          "user_id, username, display_name"
-        )
-        .in("user_id", userIds);
+        data:
+          profileRows,
+        error:
+          profileError,
+      } =
+        await supabaseAdmin
+          .from(
+            "profiles"
+          )
+          .select(
+            "user_id, username, display_name"
+          )
+          .in(
+            "user_id",
+            userIds
+          );
 
-      if (profileError) {
+      if (
+        profileError
+      ) {
         console.error(
           "Profiles error:",
           profileError
         );
       } else {
-        profiles = profileRows ?? [];
+        profiles =
+          profileRows ??
+          [];
       }
 
       const {
-        data: adminRows,
-        error: adminsError,
-      } = await supabaseAdmin
-        .from("admins")
-        .select("user_id")
-        .in("user_id", userIds);
+        data:
+          adminRows,
+        error:
+          adminsError,
+      } =
+        await supabaseAdmin
+          .from(
+            "admins"
+          )
+          .select(
+            "user_id, role"
+          )
+          .in(
+            "user_id",
+            userIds
+          );
 
-      if (adminsError) {
+      if (
+        adminsError
+      ) {
         console.error(
           "Admins error:",
           adminsError
         );
       } else {
-        admins = adminRows ?? [];
+        admins =
+          (
+            adminRows ??
+            []
+          ).filter(
+            (
+              row
+            ): row is {
+              user_id: string;
+              role: AdminRole;
+            } =>
+              row.role ===
+                "owner" ||
+              row.role ===
+                "admin" ||
+              row.role ===
+                "moderator"
+          );
       }
 
       const {
-        data: ipRows,
-        error: ipsError,
-      } = await supabaseAdmin
-        .from("user_ips")
-        .select(
-          "id, user_id, ip_address, first_seen_at, last_seen_at"
-        )
-        .in("user_id", userIds)
-        .order("last_seen_at", {
-          ascending: false,
-        });
+        data:
+          ipRows,
+        error:
+          ipsError,
+      } =
+        await supabaseAdmin
+          .from(
+            "user_ips"
+          )
+          .select(
+            "id, user_id, ip_address, first_seen_at, last_seen_at"
+          )
+          .in(
+            "user_id",
+            userIds
+          )
+          .order(
+            "last_seen_at",
+            {
+              ascending:
+                false,
+            }
+          );
 
-      if (ipsError) {
+      if (
+        ipsError
+      ) {
         console.error(
           "User IPs error:",
           ipsError
         );
       } else {
-        userIps = ipRows ?? [];
+        userIps =
+          ipRows ??
+          [];
       }
     }
 
     const {
-      data: bannedIpRows,
-      error: bannedIpsError,
-    } = await supabaseAdmin
-      .from("ip_bans")
-      .select("ip_address");
+      data:
+        bannedIpRows,
+      error:
+        bannedIpsError,
+    } =
+      await supabaseAdmin
+        .from(
+          "ip_bans"
+        )
+        .select(
+          "ip_address"
+        );
 
-    if (bannedIpsError) {
+    if (
+      bannedIpsError
+    ) {
       console.error(
         "IP bans error:",
         bannedIpsError
       );
     }
 
-    const bannedIps = (
-      bannedIpRows ?? []
-    )
-      .map((row) => row.ip_address)
-      .filter(
-        (ip): ip is string =>
-          typeof ip === "string" &&
-          ip.length > 0
+    const bannedIps =
+      (
+        bannedIpRows ??
+        []
+      )
+        .map(
+          (row) =>
+            row.ip_address
+        )
+        .filter(
+          (
+            ip
+          ): ip is string =>
+            typeof ip ===
+              "string" &&
+            ip.length > 0
+        );
+
+    const profileMap =
+      new Map(
+        profiles.map(
+          (
+            profile
+          ) => [
+            profile.user_id,
+            profile,
+          ]
+        )
       );
 
-    const profileMap = new Map(
-      profiles.map((profile) => [
-        profile.user_id,
-        profile,
-      ])
-    );
+    const adminMap =
+      new Map<
+        string,
+        AdminRole
+      >(
+        admins.map(
+          (
+            admin
+          ) => [
+            admin.user_id,
+            admin.role,
+          ]
+        )
+      );
 
-    const adminSet = new Set(
-      admins.map((admin) => admin.user_id)
-    );
+    const ipMap =
+      new Map<
+        string,
+        {
+          id: number;
+          ip_address: string;
+          first_seen_at: string;
+          last_seen_at: string;
+        }[]
+      >();
 
-    const ipMap = new Map<
-      string,
-      {
-        id: number;
-        ip_address: string;
-        first_seen_at: string;
-        last_seen_at: string;
-      }[]
-    >();
-
-    for (const ip of userIps) {
+    for (
+      const ip of userIps
+    ) {
       const existing =
-        ipMap.get(ip.user_id) ?? [];
+        ipMap.get(
+          ip.user_id
+        ) ?? [];
 
       existing.push({
-        id: ip.id,
-        ip_address: ip.ip_address,
-        first_seen_at: ip.first_seen_at,
-        last_seen_at: ip.last_seen_at,
+        id:
+          ip.id,
+        ip_address:
+          ip.ip_address,
+        first_seen_at:
+          ip.first_seen_at,
+        last_seen_at:
+          ip.last_seen_at,
       });
 
       ipMap.set(
@@ -229,50 +293,80 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const users = authUsers.map(
-      (user) => {
-        const profile =
-          profileMap.get(user.id);
+    const users =
+      authUsers.map(
+        (user) => {
+          const profile =
+            profileMap.get(
+              user.id
+            );
 
-        return {
-          id: user.id,
-          email:
-            user.email ?? null,
+          const adminRole =
+            adminMap.get(
+              user.id
+            ) ??
+            null;
 
-          username:
-            profile?.username ?? null,
+          return {
+            id:
+              user.id,
 
-          display_name:
-            profile?.display_name ?? null,
+            email:
+              user.email ??
+              null,
 
-          is_admin:
-            adminSet.has(user.id),
+            username:
+              profile?.username ??
+              null,
 
-          created_at:
-            user.created_at,
+            display_name:
+              profile?.display_name ??
+              null,
 
-          last_sign_in_at:
-            user.last_sign_in_at ??
-            null,
+            is_admin:
+              adminRole !==
+              null,
 
-          banned_until:
-            user.banned_until ??
-            null,
+            admin_role:
+              adminRole,
 
-          email_confirmed_at:
-            user.email_confirmed_at ??
-            null,
+            created_at:
+              user.created_at,
 
-          ips:
-            ipMap.get(user.id) ?? [],
-        };
+            last_sign_in_at:
+              user.last_sign_in_at ??
+              null,
+
+            banned_until:
+              user.banned_until ??
+              null,
+
+            email_confirmed_at:
+              user.email_confirmed_at ??
+              null,
+
+            ips:
+              ipMap.get(
+                user.id
+              ) ?? [],
+          };
+        }
+      );
+
+    return NextResponse.json(
+      {
+        users,
+
+        banned_ips:
+          bannedIps,
+
+        current_admin_role:
+          auth.admin.role,
+
+        current_admin_user_id:
+          auth.user.id,
       }
     );
-
-    return NextResponse.json({
-      users,
-      banned_ips: bannedIps,
-    });
   } catch (error) {
     console.error(
       "Admin users API error:",

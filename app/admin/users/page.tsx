@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../lib/supabase";
 
+type AdminRole = "owner" | "admin" | "moderator";
+
 type UserIp = {
   id: number;
   ip_address: string;
@@ -16,6 +18,7 @@ type AdminUser = {
   username: string | null;
   display_name: string | null;
   is_admin: boolean;
+  admin_role: AdminRole | null;
   created_at: string;
   last_sign_in_at: string | null;
   banned_until: string | null;
@@ -31,7 +34,8 @@ type UserAction =
   | "unban-ip"
   | "force-logout"
   | "make-admin"
-  | "remove-admin";
+  | "remove-admin"
+  | "set-admin-role";
 
 export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
@@ -44,6 +48,12 @@ export default function AdminUsersPage() {
 
   const [bannedIps, setBannedIps] =
     useState<Set<string>>(new Set());
+
+  const [currentAdminRole, setCurrentAdminRole] =
+    useState<AdminRole | null>(null);
+
+  const [currentAdminUserId, setCurrentAdminUserId] =
+    useState<string | null>(null);
 
   useEffect(() => {
     loadUsers();
@@ -62,6 +72,7 @@ export default function AdminUsersPage() {
         user.username ?? "",
         user.display_name ?? "",
         user.id,
+        user.admin_role ?? "",
         ...user.ips.map((ip) => ip.ip_address),
       ]
         .join(" ")
@@ -70,6 +81,8 @@ export default function AdminUsersPage() {
       return searchable.includes(query);
     });
   }, [users, search]);
+
+  const isOwner = currentAdminRole === "owner";
 
   async function getSessionToken() {
     const {
@@ -81,7 +94,6 @@ export default function AdminUsersPage() {
 
   async function loadUsers() {
     setLoading(true);
-    setMessage("");
     setErrorMessage("");
 
     const token = await getSessionToken();
@@ -112,17 +124,28 @@ export default function AdminUsersPage() {
         }
 
         setErrorMessage(
-          data?.error ??
-            "Users could not be loaded."
+          data?.error ?? "Users could not be loaded."
         );
-
         return;
       }
 
       setUsers(
-        Array.isArray(data?.users)
-          ? data.users
-          : []
+        Array.isArray(data?.users) ? data.users : []
+      );
+
+      const role =
+        data?.current_admin_role === "owner" ||
+        data?.current_admin_role === "admin" ||
+        data?.current_admin_role === "moderator"
+          ? data.current_admin_role
+          : null;
+
+      setCurrentAdminRole(role);
+
+      setCurrentAdminUserId(
+        typeof data?.current_admin_user_id === "string"
+          ? data.current_admin_user_id
+          : null
       );
 
       const serverBannedIps =
@@ -134,9 +157,7 @@ export default function AdminUsersPage() {
             )
           : [];
 
-      setBannedIps(
-        new Set(serverBannedIps)
-      );
+      setBannedIps(new Set(serverBannedIps));
     } catch (error) {
       console.error(error);
 
@@ -164,6 +185,71 @@ export default function AdminUsersPage() {
     );
   }
 
+  function canPerformUserAction(
+    user: AdminUser,
+    action:
+      | "ban"
+      | "force-logout"
+      | "delete"
+  ) {
+    if (!currentAdminRole) {
+      return false;
+    }
+
+    if (
+      user.id === currentAdminUserId
+    ) {
+      return false;
+    }
+
+    if (user.admin_role === "owner") {
+      return false;
+    }
+
+    if (currentAdminRole === "owner") {
+      return true;
+    }
+
+    if (currentAdminRole === "admin") {
+      if (
+        user.admin_role === "admin"
+      ) {
+        return false;
+      }
+
+      if (action === "delete") {
+        return false;
+      }
+
+      return true;
+    }
+
+    if (action === "delete") {
+      return false;
+    }
+
+    return user.admin_role === null;
+  }
+
+  function canManageIp(user: AdminUser) {
+    if (
+      currentAdminRole === "owner"
+    ) {
+      return true;
+    }
+
+    if (
+      currentAdminRole === "admin"
+    ) {
+      return (
+        user.admin_role !== "owner" &&
+        user.admin_role !== "admin"
+      );
+    }
+
+    return false;
+  }
+
   async function manageUser(
     action: UserAction,
     options: {
@@ -171,6 +257,7 @@ export default function AdminUsersPage() {
       ipAddress?: string;
       label?: string;
       reason?: string;
+      role?: "admin" | "moderator";
     }
   ) {
     setMessage("");
@@ -271,7 +358,7 @@ export default function AdminUsersPage() {
     if (action === "make-admin") {
       const confirmed =
         window.confirm(
-          `Give admin permission to ${
+          `Give ADMIN role to ${
             options.label ??
             "this user"
           }?`
@@ -282,10 +369,29 @@ export default function AdminUsersPage() {
       }
     }
 
+    if (action === "set-admin-role") {
+      const roleText =
+        options.role === "moderator"
+          ? "MODERATOR"
+          : "ADMIN";
+
+      const confirmed =
+        window.confirm(
+          `Change ${
+            options.label ??
+            "this user"
+          } to ${roleText}?`
+        );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
     if (action === "remove-admin") {
       const confirmed =
         window.confirm(
-          `Remove admin permission from ${
+          `Remove staff permission from ${
             options.label ??
             "this user"
           }?`
@@ -311,6 +417,8 @@ export default function AdminUsersPage() {
       action === "ban-ip" ||
       action === "unban-ip"
         ? `${action}:${options.ipAddress}`
+        : action === "set-admin-role"
+        ? `${action}:${options.userId}:${options.role}`
         : `${action}:${options.userId}`;
 
     setActionLoading(actionKey);
@@ -334,11 +442,14 @@ export default function AdminUsersPage() {
               options.ipAddress ?? null,
             reason:
               finalReason || null,
+            role:
+              options.role ?? null,
           }),
         }
       );
 
-      const data = await response.json();
+      const data =
+        await response.json();
 
       if (!response.ok) {
         setErrorMessage(
@@ -358,8 +469,7 @@ export default function AdminUsersPage() {
         setUsers((current) =>
           current.filter(
             (user) =>
-              user.id !==
-              options.userId
+              user.id !== options.userId
           )
         );
 
@@ -436,13 +546,19 @@ export default function AdminUsersPage() {
 
       if (action === "make-admin") {
         setMessage(
-          "Admin permission granted."
+          "Admin role granted."
+        );
+      }
+
+      if (action === "set-admin-role") {
+        setMessage(
+          `Staff role changed to ${options.role?.toUpperCase()}.`
         );
       }
 
       if (action === "remove-admin") {
         setMessage(
-          "Admin permission removed."
+          "Staff permission removed."
         );
       }
     } catch (error) {
@@ -483,8 +599,17 @@ export default function AdminUsersPage() {
               </span>
             </div>
 
-            <div className="text-xs font-bold tracking-widest text-slate-400">
-              ADMIN / USERS
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <div className="text-xs font-bold tracking-widest text-slate-400">
+                ADMIN / USERS
+              </div>
+
+              {currentAdminRole && (
+                <RoleBadge
+                  role={currentAdminRole}
+                  prefix="YOU:"
+                />
+              )}
             </div>
           </div>
 
@@ -500,7 +625,7 @@ export default function AdminUsersPage() {
               href="/admin/audit"
               className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700 hover:bg-blue-100"
             >
-              🛡 Audit Logs
+              Audit Logs
             </a>
 
             <a
@@ -525,16 +650,19 @@ export default function AdminUsersPage() {
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="inline-flex rounded-full bg-violet-100 px-4 py-2 text-sm font-black text-violet-700">
-              👥 {users.length} USERS
+              {users.length} USERS
             </div>
 
             <h1 className="mt-4 text-4xl font-black">
               User management
             </h1>
 
-            <p className="mt-2 text-slate-500">
-              Manage accounts, admin permissions,
+            <p className="mt-2 max-w-2xl text-slate-500">
+              Manage accounts, staff roles,
               sessions and IP restrictions.
+              Server-side role checks remain
+              authoritative even when a button
+              is hidden here.
             </p>
           </div>
 
@@ -551,7 +679,7 @@ export default function AdminUsersPage() {
                   event.target.value
                 )
               }
-              placeholder="Email, username, user ID or IP..."
+              placeholder="Email, username, role, user ID or IP..."
               className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-4 outline-none focus:border-violet-500"
             />
           </div>
@@ -597,6 +725,28 @@ export default function AdminUsersPage() {
                 user.username ??
                 user.id;
 
+              const canBan =
+                canPerformUserAction(
+                  user,
+                  "ban"
+                );
+
+              const canForceLogout =
+                canPerformUserAction(
+                  user,
+                  "force-logout"
+                );
+
+              const canDelete =
+                canPerformUserAction(
+                  user,
+                  "delete"
+                );
+
+              const isSelf =
+                user.id ===
+                currentAdminUserId;
+
               return (
                 <article
                   key={user.id}
@@ -605,9 +755,17 @@ export default function AdminUsersPage() {
                   <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        {user.is_admin && (
-                          <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-black text-violet-700">
-                            ADMIN
+                        {user.admin_role && (
+                          <RoleBadge
+                            role={
+                              user.admin_role
+                            }
+                          />
+                        )}
+
+                        {isSelf && (
+                          <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-black text-white">
+                            YOU
                           </span>
                         )}
 
@@ -655,6 +813,15 @@ export default function AdminUsersPage() {
                           title="User ID"
                           value={user.id}
                           mono
+                        />
+
+                        <InfoBox
+                          title="Staff role"
+                          value={
+                            user.admin_role
+                              ? user.admin_role.toUpperCase()
+                              : "USER"
+                          }
                         />
 
                         <InfoBox
@@ -714,6 +881,11 @@ export default function AdminUsersPage() {
                                   ip.ip_address
                                 );
 
+                              const canIp =
+                                canManageIp(
+                                  user
+                                );
+
                               return (
                                 <div
                                   key={ip.id}
@@ -752,57 +924,58 @@ export default function AdminUsersPage() {
                                       </div>
                                     </div>
 
-                                    {!ipIsBanned ? (
-                                      <button
-                                        type="button"
-                                        disabled={
-                                          actionLoading !==
-                                          null
-                                        }
-                                        onClick={() =>
-                                          manageUser(
-                                            "ban-ip",
-                                            {
-                                              userId:
-                                                user.id,
-                                              ipAddress:
-                                                ip.ip_address,
-                                            }
-                                          )
-                                        }
-                                        className="rounded-xl bg-red-50 px-4 py-3 text-sm font-black text-red-700 hover:bg-red-100 disabled:opacity-50"
-                                      >
-                                        {actionLoading ===
-                                        `ban-ip:${ip.ip_address}`
-                                          ? "BANNING..."
-                                          : "BAN IP"}
-                                      </button>
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        disabled={
-                                          actionLoading !==
-                                          null
-                                        }
-                                        onClick={() =>
-                                          manageUser(
-                                            "unban-ip",
-                                            {
-                                              userId:
-                                                user.id,
-                                              ipAddress:
-                                                ip.ip_address,
-                                            }
-                                          )
-                                        }
-                                        className="rounded-xl bg-green-50 px-4 py-3 text-sm font-black text-green-700 hover:bg-green-100 disabled:opacity-50"
-                                      >
-                                        {actionLoading ===
-                                        `unban-ip:${ip.ip_address}`
-                                          ? "REMOVING..."
-                                          : "UNBAN IP"}
-                                      </button>
-                                    )}
+                                    {canIp &&
+                                      (!ipIsBanned ? (
+                                        <button
+                                          type="button"
+                                          disabled={
+                                            actionLoading !==
+                                            null
+                                          }
+                                          onClick={() =>
+                                            manageUser(
+                                              "ban-ip",
+                                              {
+                                                userId:
+                                                  user.id,
+                                                ipAddress:
+                                                  ip.ip_address,
+                                              }
+                                            )
+                                          }
+                                          className="rounded-xl bg-red-50 px-4 py-3 text-sm font-black text-red-700 hover:bg-red-100 disabled:opacity-50"
+                                        >
+                                          {actionLoading ===
+                                          `ban-ip:${ip.ip_address}`
+                                            ? "BANNING..."
+                                            : "BAN IP"}
+                                        </button>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          disabled={
+                                            actionLoading !==
+                                            null
+                                          }
+                                          onClick={() =>
+                                            manageUser(
+                                              "unban-ip",
+                                              {
+                                                userId:
+                                                  user.id,
+                                                ipAddress:
+                                                  ip.ip_address,
+                                              }
+                                            )
+                                          }
+                                          className="rounded-xl bg-green-50 px-4 py-3 text-sm font-black text-green-700 hover:bg-green-100 disabled:opacity-50"
+                                        >
+                                          {actionLoading ===
+                                          `unban-ip:${ip.ip_address}`
+                                            ? "REMOVING..."
+                                            : "UNBAN IP"}
+                                        </button>
+                                      ))}
                                   </div>
                                 </div>
                               );
@@ -812,15 +985,64 @@ export default function AdminUsersPage() {
                       </div>
                     </div>
 
-                    <div className="grid w-full gap-3 sm:grid-cols-2 xl:w-64 xl:grid-cols-1">
+                    <div className="grid w-full gap-3 sm:grid-cols-2 xl:w-72 xl:grid-cols-1">
                       <a
                         href={`/admin/users/${user.id}`}
                         className="rounded-xl bg-slate-950 px-5 py-4 text-center font-black text-white hover:bg-violet-700"
                       >
-                        👁 VIEW DETAILS
+                        VIEW DETAILS
                       </a>
 
-                      {banned ? (
+                      {canBan &&
+                        (banned ? (
+                          <button
+                            type="button"
+                            disabled={
+                              actionLoading !== null
+                            }
+                            onClick={() =>
+                              manageUser(
+                                "unban-user",
+                                {
+                                  userId:
+                                    user.id,
+                                  label,
+                                }
+                              )
+                            }
+                            className="rounded-xl bg-green-600 px-5 py-4 font-black text-white hover:bg-green-700 disabled:opacity-50"
+                          >
+                            {actionLoading ===
+                            `unban-user:${user.id}`
+                              ? "WAIT..."
+                              : "UNBAN USER"}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={
+                              actionLoading !== null
+                            }
+                            onClick={() =>
+                              manageUser(
+                                "ban-user",
+                                {
+                                  userId:
+                                    user.id,
+                                  label,
+                                }
+                              )
+                            }
+                            className="rounded-xl bg-amber-50 px-5 py-4 font-black text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+                          >
+                            {actionLoading ===
+                            `ban-user:${user.id}`
+                              ? "WAIT..."
+                              : "BAN USER"}
+                          </button>
+                        ))}
+
+                      {canForceLogout && (
                         <button
                           type="button"
                           disabled={
@@ -828,71 +1050,118 @@ export default function AdminUsersPage() {
                           }
                           onClick={() =>
                             manageUser(
-                              "unban-user",
+                              "force-logout",
                               {
                                 userId: user.id,
                                 label,
                               }
                             )
                           }
-                          className="rounded-xl bg-green-600 px-5 py-4 font-black text-white hover:bg-green-700 disabled:opacity-50"
+                          className="rounded-xl bg-blue-50 px-5 py-4 font-black text-blue-700 hover:bg-blue-100 disabled:opacity-50"
                         >
                           {actionLoading ===
-                          `unban-user:${user.id}`
+                          `force-logout:${user.id}`
                             ? "WAIT..."
-                            : "UNBAN USER"}
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={
-                            actionLoading !== null ||
-                            user.is_admin
-                          }
-                          onClick={() =>
-                            manageUser(
-                              "ban-user",
-                              {
-                                userId: user.id,
-                                label,
-                              }
-                            )
-                          }
-                          className="rounded-xl bg-amber-50 px-5 py-4 font-black text-amber-700 hover:bg-amber-100 disabled:opacity-40"
-                        >
-                          {actionLoading ===
-                          `ban-user:${user.id}`
-                            ? "WAIT..."
-                            : user.is_admin
-                            ? "ADMIN PROTECTED"
-                            : "BAN USER"}
+                            : "FORCE LOGOUT"}
                         </button>
                       )}
 
-                      <button
-                        type="button"
-                        disabled={
-                          actionLoading !== null ||
-                          user.is_admin
-                        }
-                        onClick={() =>
-                          manageUser(
-                            "force-logout",
-                            {
-                              userId: user.id,
-                              label,
-                            }
-                          )
-                        }
-                        className="rounded-xl bg-blue-50 px-5 py-4 font-black text-blue-700 hover:bg-blue-100 disabled:opacity-40"
-                      >
-                        {actionLoading ===
-                        `force-logout:${user.id}`
-                          ? "WAIT..."
-                          : "FORCE LOGOUT"}
-                      </button>
+                      {isOwner &&
+                        !isSelf &&
+                        user.admin_role !==
+                          "owner" && (
+                          <>
+                            {user.admin_role !==
+                              "moderator" && (
+                              <button
+                                type="button"
+                                disabled={
+                                  actionLoading !==
+                                  null
+                                }
+                                onClick={() =>
+                                  manageUser(
+                                    "set-admin-role",
+                                    {
+                                      userId:
+                                        user.id,
+                                      label,
+                                      role:
+                                        "moderator",
+                                    }
+                                  )
+                                }
+                                className="rounded-xl bg-cyan-50 px-5 py-4 font-black text-cyan-700 hover:bg-cyan-100 disabled:opacity-50"
+                              >
+                                {actionLoading ===
+                                `set-admin-role:${user.id}:moderator`
+                                  ? "WAIT..."
+                                  : "MAKE MODERATOR"}
+                              </button>
+                            )}
 
-                      {!user.is_admin ? (
+                            {user.admin_role !==
+                              "admin" && (
+                              <button
+                                type="button"
+                                disabled={
+                                  actionLoading !==
+                                  null
+                                }
+                                onClick={() =>
+                                  manageUser(
+                                    user.admin_role
+                                      ? "set-admin-role"
+                                      : "make-admin",
+                                    {
+                                      userId:
+                                        user.id,
+                                      label,
+                                      role:
+                                        "admin",
+                                    }
+                                  )
+                                }
+                                className="rounded-xl bg-violet-600 px-5 py-4 font-black text-white hover:bg-violet-700 disabled:opacity-50"
+                              >
+                                {actionLoading ===
+                                  `make-admin:${user.id}` ||
+                                actionLoading ===
+                                  `set-admin-role:${user.id}:admin`
+                                  ? "WAIT..."
+                                  : "MAKE ADMIN"}
+                              </button>
+                            )}
+
+                            {user.admin_role && (
+                              <button
+                                type="button"
+                                disabled={
+                                  actionLoading !==
+                                  null
+                                }
+                                onClick={() =>
+                                  manageUser(
+                                    "remove-admin",
+                                    {
+                                      userId:
+                                        user.id,
+                                      label,
+                                    }
+                                  )
+                                }
+                                className="rounded-xl bg-violet-50 px-5 py-4 font-black text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+                              >
+                                {actionLoading ===
+                                `remove-admin:${user.id}`
+                                  ? "WAIT..."
+                                  : "REMOVE STAFF"}
+                              </button>
+                            )}
+                          </>
+                        )}
+
+                      {canDelete && (
                         <button
                           type="button"
                           disabled={
@@ -900,68 +1169,22 @@ export default function AdminUsersPage() {
                           }
                           onClick={() =>
                             manageUser(
-                              "make-admin",
+                              "delete-user",
                               {
-                                userId: user.id,
+                                userId:
+                                  user.id,
                                 label,
                               }
                             )
                           }
-                          className="rounded-xl bg-violet-600 px-5 py-4 font-black text-white hover:bg-violet-700 disabled:opacity-50"
+                          className="rounded-xl bg-red-600 px-5 py-4 font-black text-white hover:bg-red-700 disabled:opacity-50"
                         >
                           {actionLoading ===
-                          `make-admin:${user.id}`
-                            ? "WAIT..."
-                            : "MAKE ADMIN"}
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={
-                            actionLoading !== null
-                          }
-                          onClick={() =>
-                            manageUser(
-                              "remove-admin",
-                              {
-                                userId: user.id,
-                                label,
-                              }
-                            )
-                          }
-                          className="rounded-xl bg-violet-50 px-5 py-4 font-black text-violet-700 hover:bg-violet-100 disabled:opacity-50"
-                        >
-                          {actionLoading ===
-                          `remove-admin:${user.id}`
-                            ? "WAIT..."
-                            : "REMOVE ADMIN"}
+                          `delete-user:${user.id}`
+                            ? "DELETING..."
+                            : "DELETE USER"}
                         </button>
                       )}
-
-                      <button
-                        type="button"
-                        disabled={
-                          actionLoading !== null ||
-                          user.is_admin
-                        }
-                        onClick={() =>
-                          manageUser(
-                            "delete-user",
-                            {
-                              userId: user.id,
-                              label,
-                            }
-                          )
-                        }
-                        className="rounded-xl bg-red-600 px-5 py-4 font-black text-white hover:bg-red-700 disabled:opacity-40"
-                      >
-                        {actionLoading ===
-                        `delete-user:${user.id}`
-                          ? "DELETING..."
-                          : user.is_admin
-                          ? "ADMIN PROTECTED"
-                          : "DELETE USER"}
-                      </button>
 
                       <button
                         type="button"
@@ -983,6 +1206,30 @@ export default function AdminUsersPage() {
         )}
       </section>
     </main>
+  );
+}
+
+function RoleBadge({
+  role,
+  prefix = "",
+}: {
+  role: AdminRole;
+  prefix?: string;
+}) {
+  const className =
+    role === "owner"
+      ? "bg-fuchsia-100 text-fuchsia-700"
+      : role === "admin"
+      ? "bg-violet-100 text-violet-700"
+      : "bg-cyan-100 text-cyan-700";
+
+  return (
+    <span
+      className={`rounded-full px-3 py-1 text-xs font-black ${className}`}
+    >
+      {prefix ? `${prefix} ` : ""}
+      {role.toUpperCase()}
+    </span>
   );
 }
 
