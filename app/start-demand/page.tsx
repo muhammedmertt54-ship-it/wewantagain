@@ -41,6 +41,16 @@ export default function StartDemandPage() {
   const [message, setMessage] = useState("");
   const [success, setSuccess] = useState(false);
 
+  const [
+    submissionsEnabled,
+    setSubmissionsEnabled,
+  ] = useState(true);
+
+  const [
+    availabilityMessage,
+    setAvailabilityMessage,
+  ] = useState("");
+
   useEffect(() => {
     checkSession();
   }, []);
@@ -72,37 +82,53 @@ export default function StartDemandPage() {
       return;
     }
 
+    const {
+      data: settingsRow,
+      error: settingsError,
+    } = await supabase
+      .from("site_settings")
+      .select("settings")
+      .limit(1)
+      .maybeSingle();
+
+    if (settingsError) {
+      console.error(
+        "Submission settings load error:",
+        settingsError
+      );
+
+      setSubmissionsEnabled(false);
+      setAvailabilityMessage(
+        "Campaign submissions are temporarily unavailable."
+      );
+
+      setCheckingSession(false);
+      return;
+    }
+
+    const siteSettings =
+      settingsRow?.settings &&
+      typeof settingsRow.settings === "object"
+        ? (settingsRow.settings as Record<
+            string,
+            unknown
+          >)
+        : {};
+
+    const enabled =
+      siteSettings.submissions_enabled !== false;
+
+    setSubmissionsEnabled(enabled);
+
+    if (!enabled) {
+      setAvailabilityMessage(
+        "Campaign submissions are currently disabled by WeWantAgain."
+      );
+    } else {
+      setAvailabilityMessage("");
+    }
+
     setCheckingSession(false);
-  }
-
-  function makeSlug(value: string) {
-    return value
-      .toLocaleLowerCase("tr-TR")
-      .trim()
-      .replace(/ğ/g, "g")
-      .replace(/ü/g, "u")
-      .replace(/ş/g, "s")
-      .replace(/ı/g, "i")
-      .replace(/ö/g, "o")
-      .replace(/ç/g, "c")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-  }
-
-  function getFileExtension(file: File) {
-    if (file.type === "image/jpeg") {
-      return "jpg";
-    }
-
-    if (file.type === "image/png") {
-      return "png";
-    }
-
-    if (file.type === "image/webp") {
-      return "webp";
-    }
-
-    return "";
   }
 
   function handleImageChange(
@@ -151,11 +177,22 @@ export default function StartDemandPage() {
     setMessage("");
     setSuccess(false);
 
+    if (!submissionsEnabled) {
+      setMessage(
+        availabilityMessage ||
+          "Campaign submissions are currently disabled."
+      );
+      return;
+    }
+
     const {
       data: { session },
     } = await supabase.auth.getSession();
 
-    if (!session?.user) {
+    if (
+      !session?.user ||
+      !session.access_token
+    ) {
       window.location.href =
         "/signin?next=/start-demand";
       return;
@@ -190,8 +227,9 @@ export default function StartDemandPage() {
     const numericGoal = Number(goal);
 
     if (
-      !Number.isFinite(numericGoal) ||
-      numericGoal < 1
+      !Number.isInteger(numericGoal) ||
+      numericGoal < 1 ||
+      numericGoal > 100000000
     ) {
       setMessage(
         "Please enter a valid supporter goal."
@@ -199,139 +237,90 @@ export default function StartDemandPage() {
       return;
     }
 
-    const slugBase = makeSlug(
-      `${subtitle}-${title}`
-    );
-
-    if (!slugBase) {
-      setMessage(
-        "Could not create a valid campaign URL."
-      );
-      return;
-    }
-
-    const extension =
-      getFileExtension(imageFile);
-
-    if (!extension) {
-      setMessage(
-        "Unsupported image format."
-      );
-      return;
-    }
-
     setLoading(true);
 
-    let uploadedImagePath = "";
-
     try {
-      const slug = `${slugBase}-${Date.now()
-        .toString()
-        .slice(-6)}`;
+      const formData =
+        new FormData();
 
-      const randomPart =
-        crypto.randomUUID();
+      formData.append(
+        "title",
+        title.trim()
+      );
 
-      uploadedImagePath =
-        `${session.user.id}/${randomPart}.${extension}`;
+      formData.append(
+        "subtitle",
+        subtitle.trim()
+      );
 
-      const {
-        error: uploadError,
-      } = await supabase.storage
-        .from("campaign-images")
-        .upload(
-          uploadedImagePath,
-          imageFile,
+      formData.append(
+        "category",
+        category
+      );
+
+      formData.append(
+        "target",
+        target.trim()
+      );
+
+      formData.append(
+        "description",
+        description.trim()
+      );
+
+      formData.append(
+        "goal",
+        String(numericGoal)
+      );
+
+      formData.append(
+        "copyright_confirmed",
+        "true"
+      );
+
+      formData.append(
+        "image",
+        imageFile,
+        imageFile.name
+      );
+
+      const response =
+        await fetch(
+          "/api/demands/submit",
           {
-            cacheControl: "3600",
-            upsert: false,
-            contentType: imageFile.type,
+            method: "POST",
+
+            headers: {
+              Authorization:
+                `Bearer ${session.access_token}`,
+            },
+
+            body: formData,
           }
         );
 
-      if (uploadError) {
-        console.error(uploadError);
+      const data =
+        await response
+          .json()
+          .catch(() => ({}));
 
-        setMessage(
-          "Image could not be uploaded. Please try again."
-        );
-
-        return;
-      }
-
-      const {
-        data: publicUrlData,
-      } = supabase.storage
-        .from("campaign-images")
-        .getPublicUrl(uploadedImagePath);
-
-      const imageUrl =
-        publicUrlData.publicUrl;
-
-      if (!imageUrl) {
-        await supabase.storage
-          .from("campaign-images")
-          .remove([uploadedImagePath]);
-
-        uploadedImagePath = "";
-
-        setMessage(
-          "Image URL could not be created."
-        );
-
-        return;
-      }
-
-      const {
-        error: campaignError,
-      } = await supabase
-        .from("campaigns")
-        .insert({
-          slug,
-          title: title.trim(),
-          subtitle: subtitle.trim(),
-          category,
-          target: target.trim(),
-          description:
-            description.trim(),
-          goal: numericGoal,
-          status: "pending",
-          created_by:
-            session.user.id,
-
-          image_url: imageUrl,
-          image_path:
-            uploadedImagePath,
-
-          copyright_confirmed: true,
-          image_removed: false,
-        });
-
-      if (campaignError) {
-        console.error(campaignError);
-
-        if (uploadedImagePath) {
-          await supabase.storage
-            .from("campaign-images")
-            .remove([
-              uploadedImagePath,
-            ]);
-        }
-
-        uploadedImagePath = "";
-
+      if (!response.ok) {
         if (
-          campaignError.code ===
-          "23505"
+          data?.code ===
+          "SUBMISSIONS_DISABLED"
         ) {
-          setMessage(
-            "A similar campaign already exists."
-          );
-        } else {
-          setMessage(
-            "Campaign could not be created. Please try again."
+          setSubmissionsEnabled(false);
+
+          setAvailabilityMessage(
+            data?.error ||
+              "Campaign submissions are currently disabled."
           );
         }
+
+        setMessage(
+          data?.error ||
+            "Campaign could not be created. Please try again."
+        );
 
         return;
       }
@@ -339,7 +328,8 @@ export default function StartDemandPage() {
       setSuccess(true);
 
       setMessage(
-        "Your demand was submitted successfully. It will appear after review."
+        data?.message ||
+          "Your demand was submitted successfully. It will appear after review."
       );
 
       setTitle("");
@@ -361,15 +351,10 @@ export default function StartDemandPage() {
         fileInput.value = "";
       }
     } catch (error) {
-      console.error(error);
-
-      if (uploadedImagePath) {
-        await supabase.storage
-          .from("campaign-images")
-          .remove([
-            uploadedImagePath,
-          ]);
-      }
+      console.error(
+        "Campaign submission error:",
+        error
+      );
 
       setMessage(
         "Something went wrong. Please try again."
@@ -385,6 +370,82 @@ export default function StartDemandPage() {
         <div className="font-black text-violet-600">
           Checking account...
         </div>
+      </main>
+    );
+  }
+
+  if (!submissionsEnabled) {
+    return (
+      <main className="min-h-screen bg-slate-50 text-slate-950">
+        <header className="border-b border-slate-200 bg-white">
+          <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
+            <a href="/">
+              <div className="text-2xl font-black tracking-tight">
+                WEWANT
+                <span className="text-violet-600">
+                  AGAIN
+                </span>
+              </div>
+
+              <div className="text-[10px] font-semibold tracking-[0.22em] text-slate-500">
+                YOUR VOICE. THEIR ATTENTION.
+              </div>
+            </a>
+
+            <div className="flex gap-3">
+              <a
+                href="/account"
+                className="rounded-xl border border-slate-200 px-5 py-3 font-bold hover:border-violet-300"
+              >
+                Account
+              </a>
+
+              <a
+                href="/"
+                className="rounded-xl border border-slate-200 px-5 py-3 font-bold hover:border-violet-300"
+              >
+                Home
+              </a>
+            </div>
+          </div>
+        </header>
+
+        <section className="mx-auto flex min-h-[70vh] max-w-3xl items-center px-6 py-14">
+          <div className="w-full rounded-3xl border border-amber-200 bg-white p-8 text-center shadow-sm sm:p-12">
+            <div className="mx-auto inline-flex rounded-full bg-amber-100 px-4 py-2 text-sm font-black text-amber-700">
+              SUBMISSIONS PAUSED
+            </div>
+
+            <h1 className="mt-6 text-3xl font-black sm:text-4xl">
+              New demands are temporarily unavailable.
+            </h1>
+
+            <p className="mx-auto mt-4 max-w-xl leading-7 text-slate-600">
+              {availabilityMessage ||
+                "Campaign submissions are currently disabled by WeWantAgain."}
+            </p>
+
+            <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-400">
+              Existing campaigns remain available. Please check back later.
+            </p>
+
+            <div className="mt-8 flex flex-wrap justify-center gap-3">
+              <a
+                href="/"
+                className="rounded-xl bg-violet-600 px-6 py-3 font-black text-white hover:bg-violet-700"
+              >
+                BACK TO WEBSITE
+              </a>
+
+              <a
+                href="/account"
+                className="rounded-xl border border-slate-200 bg-white px-6 py-3 font-black text-slate-700 hover:border-violet-300"
+              >
+                ACCOUNT
+              </a>
+            </div>
+          </div>
+        </section>
       </main>
     );
   }
@@ -418,7 +479,7 @@ export default function StartDemandPage() {
               href="/"
               className="rounded-xl border border-slate-200 px-5 py-3 font-bold hover:border-violet-300"
             >
-              ← Home
+              Home
             </a>
           </div>
         </div>
