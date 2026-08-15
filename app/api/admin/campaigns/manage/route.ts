@@ -39,13 +39,10 @@ async function writeAuditLog({
     await supabaseAdmin
       .from("admin_audit_logs")
       .insert({
-        admin_user_id:
-          adminUserId,
-        target_user_id:
-          null,
+        admin_user_id: adminUserId,
+        target_user_id: null,
         action,
-        details:
-          details ?? null,
+        details: details ?? null,
       });
 
   if (error) {
@@ -124,6 +121,27 @@ export async function POST(
       );
     }
 
+    if (
+      auth.admin.role ===
+        "moderator" &&
+      (
+        action ===
+          "delete" ||
+        action ===
+          "remove-image"
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Owner or admin access required for this action.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
     const {
       data: campaign,
       error: campaignError,
@@ -168,12 +186,6 @@ export async function POST(
       );
     }
 
-    /*
-     * MODERATION ACTION
-     *
-     * owner / admin / moderator
-     * can change campaign status.
-     */
     if (
       action ===
       "set-status"
@@ -296,26 +308,6 @@ export async function POST(
 
           campaign:
             updatedCampaign,
-        }
-      );
-    }
-
-    /*
-     * DESTRUCTIVE ACTIONS
-     *
-     * moderator is NOT allowed.
-     */
-    if (
-      auth.admin.role ===
-      "moderator"
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Owner or admin access required for this action.",
-        },
-        {
-          status: 403,
         }
       );
     }
