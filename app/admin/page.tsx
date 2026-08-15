@@ -3,6 +3,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
+type AdminRole =
+  | "owner"
+  | "admin"
+  | "moderator";
+
+function isAdminRole(
+  value: unknown
+): value is AdminRole {
+  return (
+    value === "owner" ||
+    value === "admin" ||
+    value === "moderator"
+  );
+}
+
 type CampaignStatus =
   | "pending"
   | "active"
@@ -57,6 +72,13 @@ export default function AdminPage() {
 
   const [isAdmin, setIsAdmin] =
     useState(false);
+
+  const [
+    adminRole,
+    setAdminRole,
+  ] = useState<AdminRole | null>(
+    null
+  );
 
   const [
     campaigns,
@@ -134,6 +156,7 @@ export default function AdminPage() {
     if (!session?.user) {
       setIsLoggedIn(false);
       setIsAdmin(false);
+      setAdminRole(null);
       setLoading(false);
 
       return;
@@ -146,7 +169,7 @@ export default function AdminPage() {
       error: adminError,
     } = await supabase
       .from("admins")
-      .select("user_id")
+      .select("user_id, role")
       .eq(
         "user_id",
         session.user.id
@@ -155,15 +178,22 @@ export default function AdminPage() {
 
     if (
       adminError ||
-      !adminRow
+      !adminRow ||
+      !isAdminRole(
+        adminRow.role
+      )
     ) {
       setIsAdmin(false);
+      setAdminRole(null);
       setLoading(false);
 
       return;
     }
 
     setIsAdmin(true);
+    setAdminRole(
+      adminRow.role
+    );
 
     await loadCampaigns();
 
@@ -246,8 +276,7 @@ export default function AdminPage() {
     const label =
       newStatus === "active"
         ? "approve"
-        : newStatus ===
-            "rejected"
+        : newStatus === "rejected"
         ? "reject"
         : "move back to pending";
 
@@ -260,62 +289,104 @@ export default function AdminPage() {
       return;
     }
 
-    setActionLoading(
-      `${campaign.id}:status:${newStatus}`
-    );
+    const token =
+      await getAccessToken();
 
-    const { error } =
-      await supabase
-        .from("campaigns")
-        .update({
-          status: newStatus,
-        })
-        .eq(
-          "id",
-          campaign.id
-        );
-
-    setActionLoading(null);
-
-    if (error) {
-      console.error(error);
-
+    if (!token) {
       setErrorMessage(
-        "Campaign status could not be updated."
+        "Admin session expired. Please sign in again."
       );
 
       return;
     }
 
-    setCampaigns(
-      (current) =>
-        current.map((item) =>
-          item.id ===
-          campaign.id
-            ? {
-                ...item,
-                status:
-                  newStatus,
-              }
-            : item
-        )
+    setActionLoading(
+      `${campaign.id}:status:${newStatus}`
     );
 
-    if (
-      newStatus === "active"
-    ) {
-      setMessage(
-        "Campaign approved."
+    try {
+      const response =
+        await fetch(
+          "/api/admin/campaigns/manage",
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+
+              Authorization:
+                `Bearer ${token}`,
+            },
+
+            body:
+              JSON.stringify({
+                campaignId:
+                  campaign.id,
+
+                action:
+                  "set-status",
+
+                status:
+                  newStatus,
+              }),
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        setErrorMessage(
+          data?.error ??
+            "Campaign status could not be updated."
+        );
+
+        return;
+      }
+
+      setCampaigns(
+        (current) =>
+          current.map((item) =>
+            item.id ===
+            campaign.id
+              ? {
+                  ...item,
+                  status:
+                    newStatus,
+                }
+              : item
+          )
       );
-    } else if (
-      newStatus === "rejected"
-    ) {
-      setMessage(
-        "Campaign rejected."
+
+      if (
+        newStatus ===
+        "active"
+      ) {
+        setMessage(
+          "Campaign approved."
+        );
+      } else if (
+        newStatus ===
+        "rejected"
+      ) {
+        setMessage(
+          "Campaign rejected."
+        );
+      } else {
+        setMessage(
+          "Campaign moved back to pending."
+        );
+      }
+    } catch (error) {
+      console.error(error);
+
+      setErrorMessage(
+        "Campaign status could not be updated."
       );
-    } else {
-      setMessage(
-        "Campaign moved back to pending."
+    } finally {
+      setActionLoading(
+        null
       );
     }
   }
@@ -488,6 +559,7 @@ export default function AdminPage() {
 
     setIsLoggedIn(false);
     setIsAdmin(false);
+    setAdminRole(null);
 
     setCampaigns([]);
 
@@ -553,7 +625,7 @@ export default function AdminPage() {
             href="/"
             className="mb-8 inline-block font-bold text-slate-500 hover:text-violet-600"
           >
-            ← Back to website
+            â† Back to website
           </a>
 
           <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-xl">
@@ -617,7 +689,7 @@ export default function AdminPage() {
                     )
                   }
                   className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-4 outline-none focus:border-violet-500"
-                  placeholder="••••••••"
+                  placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                   required
                 />
               </label>
@@ -653,7 +725,7 @@ export default function AdminPage() {
       <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
         <div className="max-w-md rounded-3xl border border-red-200 bg-white p-8 text-center shadow-xl">
           <div className="text-4xl">
-            ⛔
+            â›”
           </div>
 
           <h1 className="mt-4 text-2xl font-black">
@@ -694,6 +766,12 @@ export default function AdminPage() {
             <div className="text-xs font-bold tracking-widest text-slate-400">
               ADMIN PANEL
             </div>
+
+            {adminRole && (
+              <div className="mt-2 inline-flex rounded-full bg-slate-100 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-slate-600">
+                {adminRole}
+              </div>
+            )}
           </div>
 
           <div className="flex flex-wrap gap-3">
@@ -701,36 +779,48 @@ export default function AdminPage() {
               href="/admin/users"
               className="rounded-xl bg-violet-600 px-4 py-3 text-sm font-black text-white hover:bg-violet-700"
             >
-              👥 Manage Users
+              ğŸ‘¥ Manage Users
             </a>
 
-            <a
+            {adminRole !==
+              "moderator" && (
+              <a
               href="/admin/copyright"
               className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black text-amber-700 hover:bg-amber-100"
             >
-              © Copyright Reports
+              Â© Copyright Reports
             </a>
+            )}
 
-            <a
+            {adminRole !==
+              "moderator" && (
+              <a
               href="/admin/audit"
               className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700 hover:bg-blue-100"
             >
-              🛡 Audit Logs
+              ğŸ›¡ Audit Logs
             </a>
+            )}
 
-            <a
+            {adminRole !==
+              "moderator" && (
+              <a
               href="/admin/site"
               className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-black text-green-700 hover:bg-green-100"
             >
-              ⚙ Site Management
+              âš™ Site Management
             </a>
+            )}
 
-            <a
+            {adminRole !==
+              "moderator" && (
+              <a
               href="/admin/notifications"
               className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-black text-violet-700 hover:bg-violet-100"
             >
-              🔔 Notifications
+              ğŸ”” Notifications
             </a>
+            )}
 
             <a
               href="/"
@@ -850,7 +940,7 @@ export default function AdminPage() {
         0 ? (
           <div className="mt-8 rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
             <div className="text-4xl">
-              ✓
+              âœ“
             </div>
 
             <h2 className="mt-4 text-2xl font-black">
@@ -984,7 +1074,7 @@ export default function AdminPage() {
                           className="mt-5 inline-block font-black text-violet-600 hover:underline"
                         >
                           View live
-                          campaign →
+                          campaign â†’
                         </a>
                       )}
                     </div>
@@ -1009,7 +1099,7 @@ export default function AdminPage() {
                           {actionLoading ===
                           `${campaign.id}:status:active`
                             ? "WAIT..."
-                            : "✓ APPROVE"}
+                            : "âœ“ APPROVE"}
                         </button>
                       )}
 
@@ -1032,7 +1122,7 @@ export default function AdminPage() {
                           {actionLoading ===
                           `${campaign.id}:status:rejected`
                             ? "WAIT..."
-                            : "✕ REJECT"}
+                            : "âœ• REJECT"}
                         </button>
                       )}
 
@@ -1055,11 +1145,13 @@ export default function AdminPage() {
                           {actionLoading ===
                           `${campaign.id}:status:pending`
                             ? "WAIT..."
-                            : "↩ MOVE TO PENDING"}
+                            : "â†© MOVE TO PENDING"}
                         </button>
                       )}
 
-                      <button
+                      {adminRole !==
+                        "moderator" && (
+                        <button
                         type="button"
                         disabled={
                           actionLoading !==
@@ -1079,10 +1171,13 @@ export default function AdminPage() {
                           ? "REMOVING..."
                           : campaign.image_removed
                           ? "IMAGE REMOVED"
-                          : "🖼 REMOVE IMAGE"}
+                          : "ğŸ–¼ REMOVE IMAGE"}
                       </button>
+                      )}
 
-                      <button
+                      {adminRole !==
+                        "moderator" && (
+                        <button
                         type="button"
                         disabled={
                           actionLoading !==
@@ -1099,8 +1194,9 @@ export default function AdminPage() {
                         {actionLoading ===
                         `${campaign.id}:delete`
                           ? "DELETING..."
-                          : "🗑 DELETE CAMPAIGN"}
+                          : "ğŸ—‘ DELETE CAMPAIGN"}
                       </button>
+                      )}
                     </div>
                   </div>
                 </article>

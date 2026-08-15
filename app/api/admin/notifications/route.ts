@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { requireAdminRole } from "../../../../lib/admin/requireAdminRole";
 
 const NOTIFICATION_TYPES = [
   "info",
@@ -11,89 +12,6 @@ const NOTIFICATION_TYPES = [
 
 type NotificationType =
   (typeof NOTIFICATION_TYPES)[number];
-
-async function requireAdmin(
-  request: NextRequest
-) {
-  const authorization =
-    request.headers.get("authorization");
-
-  if (
-    !authorization ||
-    !authorization.startsWith("Bearer ")
-  ) {
-    return {
-      error: NextResponse.json(
-        {
-          error: "Unauthorized",
-        },
-        {
-          status: 401,
-        }
-      ),
-    };
-  }
-
-  const accessToken =
-    authorization.slice(7);
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabaseAdmin.auth.getUser(
-    accessToken
-  );
-
-  if (
-    userError ||
-    !user
-  ) {
-    return {
-      error: NextResponse.json(
-        {
-          error: "Invalid session",
-        },
-        {
-          status: 401,
-        }
-      ),
-    };
-  }
-
-  const {
-    data: adminRow,
-    error: adminError,
-  } = await supabaseAdmin
-    .from("admins")
-    .select("user_id")
-    .eq(
-      "user_id",
-      user.id
-    )
-    .maybeSingle();
-
-  if (
-    adminError ||
-    !adminRow
-  ) {
-    return {
-      error: NextResponse.json(
-        {
-          error:
-            "Admin access required",
-        },
-        {
-          status: 403,
-        }
-      ),
-    };
-  }
-
-  return {
-    user,
-    accessToken,
-  };
-}
 
 async function writeAuditLog({
   adminUserId,
@@ -182,9 +100,9 @@ function cleanDateTime(
    * datetime-local input:
    * 2026-08-13T20:30
    *
-   * Böyle bir değer timezone içermez.
-   * WeWantAgain şu anda Türkiye
-   * saatini kullanıyor: UTC+3.
+   * BÃ¶yle bir deÄŸer timezone iÃ§ermez.
+   * WeWantAgain ÅŸu anda TÃ¼rkiye
+   * saatini kullanÄ±yor: UTC+3.
    */
   const hasTimezone =
     /(?:Z|[+-]\d{2}:?\d{2})$/i.test(
@@ -274,7 +192,7 @@ function validateDates(
 /*
  * GET
  *
- * Admin panelindeki bütün
+ * Admin panelindeki bÃ¼tÃ¼n
  * bildirimleri getirir.
  */
 export async function GET(
@@ -282,14 +200,13 @@ export async function GET(
 ) {
   try {
     const auth =
-      await requireAdmin(
-        request
-      );
+      await requireAdminRole(request, [
+        "owner",
+        "admin",
+      ]);
 
-    if (
-      "error" in auth
-    ) {
-      return auth.error;
+    if (!auth.ok) {
+      return auth.response;
     }
 
     const {
@@ -366,21 +283,20 @@ export async function GET(
 /*
  * POST
  *
- * Yeni global bildirim oluşturur.
+ * Yeni global bildirim oluÅŸturur.
  */
 export async function POST(
   request: NextRequest
 ) {
   try {
     const auth =
-      await requireAdmin(
-        request
-      );
+      await requireAdminRole(request, [
+        "owner",
+        "admin",
+      ]);
 
-    if (
-      "error" in auth
-    ) {
-      return auth.error;
+    if (!auth.ok) {
+      return auth.response;
     }
 
     const body =
@@ -587,24 +503,23 @@ export async function POST(
 /*
  * PATCH
  *
- * Var olan bildirimi düzenler.
+ * Var olan bildirimi dÃ¼zenler.
  *
  * Aktif/pasif yapmak da
- * bunun üzerinden yapılır.
+ * bunun Ã¼zerinden yapÄ±lÄ±r.
  */
 export async function PATCH(
   request: NextRequest
 ) {
   try {
     const auth =
-      await requireAdmin(
-        request
-      );
+      await requireAdminRole(request, [
+        "owner",
+        "admin",
+      ]);
 
-    if (
-      "error" in auth
-    ) {
-      return auth.error;
+    if (!auth.ok) {
+      return auth.response;
     }
 
     const body =
@@ -901,7 +816,7 @@ export async function PATCH(
  *
  * Bildirimi tamamen siler.
  *
- * Şunların ikisini de kabul eder:
+ * ÅunlarÄ±n ikisini de kabul eder:
  *
  * DELETE /api/admin/notifications?id=12
  *
@@ -913,14 +828,13 @@ export async function DELETE(
 ) {
   try {
     const auth =
-      await requireAdmin(
-        request
-      );
+      await requireAdminRole(request, [
+        "owner",
+        "admin",
+      ]);
 
-    if (
-      "error" in auth
-    ) {
-      return auth.error;
+    if (!auth.ok) {
+      return auth.response;
     }
 
     let id =
@@ -940,7 +854,7 @@ export async function DELETE(
             body?.id
           );
       } catch {
-        // Body boş olabilir.
+        // Body boÅŸ olabilir.
       }
     }
 

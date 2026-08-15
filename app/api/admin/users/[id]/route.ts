@@ -1,59 +1,24 @@
-import { NextRequest, NextResponse } from "next/server";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
+
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
+import { requireAdminRole } from "../../../../../lib/admin/requireAdminRole";
 
-async function requireAdmin(request: NextRequest) {
-  const authorization =
-    request.headers.get("authorization");
+type AdminRole =
+  | "owner"
+  | "admin"
+  | "moderator";
 
-  if (!authorization?.startsWith("Bearer ")) {
-    return {
-      error: NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      ),
-    };
-  }
-
-  const accessToken =
-    authorization.slice(7);
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabaseAdmin.auth.getUser(
-    accessToken
+function isAdminRole(
+  value: unknown
+): value is AdminRole {
+  return (
+    value === "owner" ||
+    value === "admin" ||
+    value === "moderator"
   );
-
-  if (userError || !user) {
-    return {
-      error: NextResponse.json(
-        { error: "Invalid session" },
-        { status: 401 }
-      ),
-    };
-  }
-
-  const {
-    data: adminRow,
-    error: adminError,
-  } = await supabaseAdmin
-    .from("admins")
-    .select("user_id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (adminError || !adminRow) {
-    return {
-      error: NextResponse.json(
-        { error: "Admin access required" },
-        { status: 403 }
-      ),
-    };
-  }
-
-  return {
-    user,
-  };
 }
 
 export async function GET(
@@ -65,11 +30,26 @@ export async function GET(
   }
 ) {
   try {
+    /*
+     * User detail contains sensitive information:
+     * - email
+     * - IP addresses
+     * - support records
+     * - audit logs
+     *
+     * Therefore only owner/admin may access this endpoint.
+     */
     const auth =
-      await requireAdmin(request);
+      await requireAdminRole(
+        request,
+        [
+          "owner",
+          "admin",
+        ]
+      );
 
-    if ("error" in auth) {
-      return auth.error;
+    if (!auth.ok) {
+      return auth.response;
     }
 
     const { id } =
@@ -93,12 +73,81 @@ export async function GET(
     }
 
     const {
+      data: targetAdminRow,
+      error: targetAdminError,
+    } =
+      await supabaseAdmin
+        .from("admins")
+        .select(
+          "user_id, role"
+        )
+        .eq(
+          "user_id",
+          userId
+        )
+        .maybeSingle();
+
+    if (targetAdminError) {
+      console.error(
+        "Target admin role check error:",
+        targetAdminError
+      );
+
+      return NextResponse.json(
+        {
+          error:
+            "User role could not be checked.",
+        },
+        {
+          status: 500,
+        }
+      );
+    }
+
+    const targetAdminRole =
+      isAdminRole(
+        targetAdminRow?.role
+      )
+        ? targetAdminRow.role
+        : null;
+
+    /*
+     * Admin cannot inspect Owner or another Admin's
+     * sensitive user-detail page.
+     *
+     * Owner can inspect everyone.
+     */
+    if (
+      auth.admin.role ===
+        "admin" &&
+      (
+        targetAdminRole ===
+          "owner" ||
+        targetAdminRole ===
+          "admin"
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Owner access required to view this staff account.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    const {
       data: authUserData,
       error: authUserError,
     } =
-      await supabaseAdmin.auth.admin.getUserById(
-        userId
-      );
+      await supabaseAdmin
+        .auth
+        .admin
+        .getUserById(
+          userId
+        );
 
     if (
       authUserError ||
@@ -120,72 +169,94 @@ export async function GET(
 
     const [
       profileResult,
-      adminResult,
       ipsResult,
       bansResult,
       campaignsResult,
       supportsResult,
       auditResult,
-    ] = await Promise.all([
-      supabaseAdmin
-        .from("profiles")
-        .select(
-          "username, display_name"
-        )
-        .eq("user_id", userId)
-        .maybeSingle(),
+    ] =
+      await Promise.all([
+        supabaseAdmin
+          .from("profiles")
+          .select(
+            "username, display_name"
+          )
+          .eq(
+            "user_id",
+            userId
+          )
+          .maybeSingle(),
 
-      supabaseAdmin
-        .from("admins")
-        .select("user_id")
-        .eq("user_id", userId)
-        .maybeSingle(),
+        supabaseAdmin
+          .from("user_ips")
+          .select(
+            "id, ip_address, first_seen_at, last_seen_at"
+          )
+          .eq(
+            "user_id",
+            userId
+          )
+          .order(
+            "last_seen_at",
+            {
+              ascending:
+                false,
+            }
+          ),
 
-      supabaseAdmin
-        .from("user_ips")
-        .select(
-          "id, ip_address, first_seen_at, last_seen_at"
-        )
-        .eq("user_id", userId)
-        .order("last_seen_at", {
-          ascending: false,
-        }),
+        supabaseAdmin
+          .from("ip_bans")
+          .select(
+            "ip_address"
+          ),
 
-      supabaseAdmin
-        .from("ip_bans")
-        .select("ip_address"),
+        supabaseAdmin
+          .from("campaigns")
+          .select(
+            "id, slug, title, subtitle, category, status, created_at, image_url, image_removed"
+          )
+          .eq(
+            "created_by",
+            userId
+          )
+          .order(
+            "created_at",
+            {
+              ascending:
+                false,
+            }
+          ),
 
-      supabaseAdmin
-        .from("campaigns")
-        .select(
-          "id, slug, title, subtitle, category, status, created_at, image_url, image_removed"
-        )
-        .eq("created_by", userId)
-        .order("created_at", {
-          ascending: false,
-        }),
+        supabaseAdmin
+          .from("supports")
+          .select(
+            "campaign_slug, verified, email, country"
+          )
+          .eq(
+            "user_id",
+            userId
+          ),
 
-      supabaseAdmin
-        .from("supports")
-        .select(
-          "campaign_slug, verified, email, country"
-        )
-        .eq("user_id", userId),
-
-      supabaseAdmin
-        .from("admin_audit_logs")
-        .select(
-          "id, admin_user_id, action, details, created_at"
-        )
-        .eq(
-          "target_user_id",
-          userId
-        )
-        .order("created_at", {
-          ascending: false,
-        })
-        .limit(200),
-    ]);
+        supabaseAdmin
+          .from(
+            "admin_audit_logs"
+          )
+          .select(
+            "id, admin_user_id, action, details, created_at"
+          )
+          .eq(
+            "target_user_id",
+            userId
+          )
+          .order(
+            "created_at",
+            {
+              ascending:
+                false,
+            }
+          )
+          .limit(200),
+      ]);
 
     if (
       profileResult.error
@@ -193,15 +264,6 @@ export async function GET(
       console.error(
         "Profile error:",
         profileResult.error
-      );
-    }
-
-    if (
-      adminResult.error
-    ) {
-      console.error(
-        "Admin check error:",
-        adminResult.error
       );
     }
 
@@ -276,11 +338,15 @@ export async function GET(
         []
       ).map(
         (ip) => ({
-          id: ip.id,
+          id:
+            ip.id,
+
           ip_address:
             ip.ip_address,
+
           first_seen_at:
             ip.first_seen_at,
+
           last_seen_at:
             ip.last_seen_at,
 
@@ -295,7 +361,8 @@ export async function GET(
       profileResult.data;
 
     const user = {
-      id: authUser.id,
+      id:
+        authUser.id,
 
       email:
         authUser.email ??
@@ -310,7 +377,11 @@ export async function GET(
         null,
 
       is_admin:
-        !!adminResult.data,
+        targetAdminRole !==
+        null,
+
+      admin_role:
+        targetAdminRole,
 
       created_at:
         authUser.created_at,
@@ -342,9 +413,17 @@ export async function GET(
         [],
     };
 
-    return NextResponse.json({
-      user,
-    });
+    return NextResponse.json(
+      {
+        user,
+
+        current_admin_role:
+          auth.admin.role,
+
+        current_admin_user_id:
+          auth.user.id,
+      }
+    );
   } catch (error) {
     console.error(
       "Admin user details API error:",

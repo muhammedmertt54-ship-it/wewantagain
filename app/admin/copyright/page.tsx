@@ -26,81 +26,176 @@ export default function AdminCopyrightPage() {
     loadReports();
   }, []);
 
+  async function getAccessToken() {
+    const {
+      data: { session },
+    } =
+      await supabase.auth.getSession();
+
+    return (
+      session?.access_token ??
+      null
+    );
+  }
+
   async function loadReports() {
     setLoading(true);
     setMessage("");
     setErrorMessage("");
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    const token =
+      await getAccessToken();
 
-    if (!session?.user) {
-      window.location.href = "/admin";
+    if (!token) {
+      window.location.href =
+        "/admin";
+
       return;
     }
 
-    const { data: adminRow, error: adminError } = await supabase
-      .from("admins")
-      .select("user_id")
-      .eq("user_id", session.user.id)
-      .maybeSingle();
+    try {
+      const response =
+        await fetch(
+          "/api/admin/copyright",
+          {
+            method: "GET",
 
-    if (adminError || !adminRow) {
-      window.location.href = "/admin";
-      return;
-    }
+            headers: {
+              Authorization:
+                `Bearer ${token}`,
+            },
+          }
+        );
 
-    const { data, error } = await supabase
-      .from("copyright_reports")
-      .select(
-        "id, full_name, email, campaign_url, work_description, disputed_content, relationship, accuracy_confirmed, status, created_at"
-      )
-      .order("created_at", { ascending: false });
+      const data =
+        await response.json();
 
-    if (error) {
-      console.error(error);
-      setErrorMessage("Copyright reports could not be loaded.");
+      if (!response.ok) {
+        if (
+          response.status === 401 ||
+          response.status === 403
+        ) {
+          window.location.href =
+            "/admin";
+
+          return;
+        }
+
+        setErrorMessage(
+          data?.error ??
+            "Copyright reports could not be loaded."
+        );
+
+        setLoading(false);
+
+        return;
+      }
+
+      setReports(
+        (data?.reports ??
+          []) as CopyrightReport[]
+      );
+
       setLoading(false);
-      return;
-    }
+    } catch (error) {
+      console.error(error);
 
-    setReports((data ?? []) as CopyrightReport[]);
-    setLoading(false);
+      setErrorMessage(
+        "Copyright reports could not be loaded."
+      );
+
+      setLoading(false);
+    }
   }
 
   async function updateStatus(
     id: number,
-    status: "reviewing" | "resolved" | "rejected"
+    status:
+      | "reviewing"
+      | "resolved"
+      | "rejected"
   ) {
     setMessage("");
     setErrorMessage("");
 
-    const { error } = await supabase
-      .from("copyright_reports")
-      .update({
-        status,
-      })
-      .eq("id", id);
+    const token =
+      await getAccessToken();
 
-    if (error) {
-      console.error(error);
-      setErrorMessage("Report status could not be updated.");
+    if (!token) {
+      window.location.href =
+        "/admin";
+
       return;
     }
 
-    setReports((current) =>
-      current.map((report) =>
-        report.id === id
-          ? {
-              ...report,
-              status,
-            }
-          : report
-      )
-    );
+    try {
+      const response =
+        await fetch(
+          "/api/admin/copyright",
+          {
+            method: "PATCH",
 
-    setMessage("Report status updated.");
+            headers: {
+              "Content-Type":
+                "application/json",
+
+              Authorization:
+                `Bearer ${token}`,
+            },
+
+            body:
+              JSON.stringify({
+                id,
+                status,
+              }),
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        if (
+          response.status === 401 ||
+          response.status === 403
+        ) {
+          window.location.href =
+            "/admin";
+
+          return;
+        }
+
+        setErrorMessage(
+          data?.error ??
+            "Report status could not be updated."
+        );
+
+        return;
+      }
+
+      setReports(
+        (current) =>
+          current.map(
+            (report) =>
+              report.id === id
+                ? {
+                    ...report,
+                    status,
+                  }
+                : report
+          )
+      );
+
+      setMessage(
+        "Report status updated."
+      );
+    } catch (error) {
+      console.error(error);
+
+      setErrorMessage(
+        "Report status could not be updated."
+      );
+    }
   }
 
   function statusStyle(status: string) {
@@ -149,7 +244,7 @@ export default function AdminCopyrightPage() {
               href="/admin"
               className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold hover:border-violet-300"
             >
-              ← Admin Panel
+              â† Admin Panel
             </a>
 
             <a
@@ -165,7 +260,7 @@ export default function AdminCopyrightPage() {
       <section className="mx-auto max-w-7xl px-5 py-10">
         <div>
           <div className="inline-flex rounded-full bg-violet-100 px-4 py-2 text-sm font-black text-violet-700">
-            © {reports.length} REPORTS
+            Â© {reports.length} REPORTS
           </div>
 
           <h1 className="mt-4 text-4xl font-black">
@@ -191,7 +286,7 @@ export default function AdminCopyrightPage() {
 
         {reports.length === 0 ? (
           <div className="mt-8 rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-            <div className="text-4xl">✓</div>
+            <div className="text-4xl">âœ“</div>
 
             <h2 className="mt-4 text-2xl font-black">
               No copyright reports

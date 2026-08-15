@@ -1,77 +1,47 @@
-import { NextRequest, NextResponse } from "next/server";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
+
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { requireAdminRole } from "../../../../lib/admin/requireAdminRole";
 
-async function requireAdmin(request: NextRequest) {
-  const authorization = request.headers.get("authorization");
-
-  if (!authorization?.startsWith("Bearer ")) {
-    return {
-      error: NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      ),
-    };
-  }
-
-  const accessToken = authorization.slice(7);
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabaseAdmin.auth.getUser(accessToken);
-
-  if (userError || !user) {
-    return {
-      error: NextResponse.json(
-        { error: "Invalid session" },
-        { status: 401 }
-      ),
-    };
-  }
-
-  const {
-    data: adminRow,
-    error: adminError,
-  } = await supabaseAdmin
-    .from("admins")
-    .select("user_id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (adminError || !adminRow) {
-    return {
-      error: NextResponse.json(
-        { error: "Admin access required" },
-        { status: 403 }
-      ),
-    };
-  }
-
-  return {
-    user,
-  };
-}
-
-export async function GET(request: NextRequest) {
+export async function GET(
+  request: NextRequest
+) {
   try {
-    const auth = await requireAdmin(request);
+    const auth =
+      await requireAdminRole(
+        request,
+        [
+          "owner",
+          "admin",
+        ]
+      );
 
-    if ("error" in auth) {
-      return auth.error;
+    if (!auth.ok) {
+      return auth.response;
     }
 
     const {
       data: logs,
       error,
-    } = await supabaseAdmin
-      .from("admin_audit_logs")
-      .select(
-        "id, admin_user_id, target_user_id, action, details, created_at"
-      )
-      .order("created_at", {
-        ascending: false,
-      })
-      .limit(500);
+    } =
+      await supabaseAdmin
+        .from(
+          "admin_audit_logs"
+        )
+        .select(
+          "id, admin_user_id, target_user_id, action, details, created_at"
+        )
+        .order(
+          "created_at",
+          {
+            ascending:
+              false,
+          }
+        )
+        .limit(500);
 
     if (error) {
       console.error(
@@ -90,9 +60,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({
-      logs: logs ?? [],
-    });
+    return NextResponse.json(
+      {
+        logs:
+          logs ?? [],
+      }
+    );
   } catch (error) {
     console.error(
       "Admin audit API error:",
