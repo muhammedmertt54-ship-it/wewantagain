@@ -310,6 +310,13 @@ export default function AccountPage() {
                 </a>
 
                 <a
+                  href="/support-history"
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 transition hover:border-violet-300 hover:text-violet-600"
+                >
+                  Support History
+                </a>
+
+                <a
                   href="/support"
                   className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 transition hover:border-violet-300 hover:text-violet-600"
                 >
@@ -337,12 +344,21 @@ export default function AccountPage() {
                 community benefits.
               </p>
 
-              <a
-                href="/support"
-                className="mt-5 inline-flex rounded-xl bg-violet-600 px-5 py-3 text-sm font-black text-white transition hover:bg-violet-700"
-              >
-                View Supporter Program
-              </a>
+              <div className="mt-5 flex flex-wrap gap-3">
+                <a
+                  href="/support"
+                  className="inline-flex rounded-xl bg-violet-600 px-5 py-3 text-sm font-black text-white transition hover:bg-violet-700"
+                >
+                  View Supporter Program
+                </a>
+
+                <a
+                  href="/support-history"
+                  className="inline-flex rounded-xl border border-violet-200 bg-white px-5 py-3 text-sm font-black text-violet-700 transition hover:border-violet-400"
+                >
+                  Support History
+                </a>
+              </div>
             </section>
           )}
 
@@ -432,6 +448,25 @@ export default function AccountPage() {
 
               <p className="mt-2 text-sm leading-6 text-slate-600">
                 Change your username and display name.
+              </p>
+            </a>
+
+            <a
+              href="/support-history"
+              className="rounded-2xl border border-indigo-200 bg-indigo-50 p-6 transition hover:border-indigo-400 hover:bg-indigo-100 sm:col-span-2"
+            >
+              <div className="text-3xl">
+                🧾
+              </div>
+
+              <h2 className="mt-4 text-xl font-black text-indigo-950">
+                Support History
+              </h2>
+
+              <p className="mt-2 text-sm leading-6 text-indigo-700">
+                View your supporter payments,
+                payment status, supporter levels
+                and transaction references.
               </p>
             </a>
 
