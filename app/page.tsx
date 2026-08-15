@@ -40,15 +40,15 @@ type SiteSettings = {
 };
 
 const defaultSiteSettings: SiteSettings = {
-  hero_badge: "🌍 Make your voice heard worldwide",
+  hero_badge: "ğŸŒ Make your voice heard worldwide",
   hero_title: "WHAT DO YOU WANT AGAIN?",
   hero_description:
     "Support the shows, movies and games you want to see return. Together, your voice becomes impossible to ignore.",
   hero_primary_button: "START A DEMAND",
   hero_secondary_button: "BROWSE CAMPAIGNS",
-  trending_title: "🔥 TRENDING NOW",
-  most_wanted_title: "🏆 MOST WANTED",
-  categories_title: "★ BROWSE BY CATEGORY",
+  trending_title: "ğŸ”¥ TRENDING NOW",
+  most_wanted_title: "ğŸ† MOST WANTED",
+  categories_title: "â˜… BROWSE BY CATEGORY",
   footer_text: "Your Voice. Their Attention.",
   submissions_enabled: true,
   support_enabled: true,
@@ -124,7 +124,7 @@ export default async function Home({
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 py-12 text-white">
         <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-white/5 p-8 text-center shadow-2xl backdrop-blur sm:p-12">
-          <div className="text-6xl">🛠️</div>
+          <div className="text-6xl">ğŸ› ï¸</div>
 
           <div className="mt-6 inline-flex rounded-full border border-amber-400/20 bg-amber-400/10 px-4 py-2 text-xs font-black uppercase tracking-widest text-amber-300">
             Maintenance Mode
@@ -279,7 +279,7 @@ export default async function Home({
           <div className="mx-auto flex max-w-7xl flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="text-sm font-black text-amber-900">
-                🛠️ Scheduled maintenance
+                ğŸ› ï¸ Scheduled maintenance
               </div>
 
               <p className="mt-1 text-sm text-amber-800">
@@ -681,13 +681,74 @@ export default async function Home({
         </div>
       </section>
 
+      {/* SUPPORTER PROGRAM */}
+      <section className="mx-auto max-w-7xl px-6 pb-14">
+        <div className="relative overflow-hidden rounded-3xl border border-violet-200 bg-slate-950 px-8 py-10 text-white shadow-xl sm:px-10">
+          <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-violet-500/20 blur-3xl" />
+          <div className="absolute -bottom-24 -left-16 h-64 w-64 rounded-full bg-indigo-500/20 blur-3xl" />
+
+          <div className="relative grid gap-8 lg:grid-cols-[1fr_auto] lg:items-center">
+            <div>
+              <div className="inline-flex rounded-full border border-violet-400/30 bg-violet-400/10 px-4 py-2 text-xs font-black uppercase tracking-[0.18em] text-violet-200">
+                Support WeWantAgain
+              </div>
+
+              <h2 className="mt-5 max-w-3xl text-3xl font-black tracking-tight sm:text-4xl">
+                Help WeWantAgain grow and unlock your Supporter badge.
+              </h2>
+
+              <p className="mt-4 max-w-2xl text-base leading-7 text-slate-300">
+                Join the Supporter Program and receive profile recognition with
+                Supporter, Backer or Champion status after verified payment.
+              </p>
+
+              <div className="mt-6 flex flex-wrap gap-3 text-sm font-bold">
+                <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2">
+                  💜 Supporter · ₺25+
+                </span>
+
+                <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2">
+                  ⭐ Backer · ₺100+
+                </span>
+
+                <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2">
+                  🏆 Champion · ₺250+
+                </span>
+              </div>
+            </div>
+
+            <div className="flex min-w-[220px] flex-col gap-3">
+              <a
+                href="/support"
+                className="rounded-xl bg-violet-600 px-7 py-4 text-center font-black text-white shadow-lg shadow-violet-950/30 transition hover:bg-violet-500"
+              >
+                SUPPORT WEWANTAGAIN
+              </a>
+
+              <a
+                href="/supporters"
+                className="rounded-xl border border-white/15 bg-white/5 px-7 py-4 text-center font-black text-white transition hover:bg-white/10"
+              >
+                VIEW SUPPORTERS WALL
+              </a>
+            </div>
+          </div>
+
+          <div className="relative mt-7 border-t border-white/10 pt-5 text-xs leading-5 text-slate-400">
+            Supporter status is activated only after successful payment
+            verification. Support does not affect campaign rankings or voting
+            power.
+          </div>
+        </div>
+      </section>
+
       {/* CTA */}
       {siteSettings.submissions_enabled && (
         <section className="mx-auto max-w-7xl px-6 pb-14">
           <div className="flex flex-col items-center justify-between gap-6 rounded-3xl border border-violet-200 bg-violet-50 px-8 py-8 md:flex-row">
             <div className="flex items-center gap-5">
               <div className="flex h-16 w-16 items-center justify-center rounded-full border border-violet-300 bg-white text-3xl">
-                ✨
+                âœ¨
               </div>
 
               <div>
@@ -795,6 +856,20 @@ export default async function Home({
                 className="block hover:text-violet-600"
               >
                 About
+              </a>
+
+              <a
+                href="/support"
+                className="block hover:text-violet-600"
+              >
+                Supporter Program
+              </a>
+
+              <a
+                href="/supporters"
+                className="block hover:text-violet-600"
+              >
+                Supporters Wall
               </a>
 
               <a
