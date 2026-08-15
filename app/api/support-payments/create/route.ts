@@ -6,6 +6,9 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 const MIN_AMOUNT = 1;
 const MAX_AMOUNT = 100000;
 
+const TERMS_VERSION = "2026-08-15";
+const REFUND_POLICY_VERSION = "2026-08-15";
+
 function cleanText(
   value: unknown,
   maxLength: number
@@ -49,6 +52,37 @@ export async function POST(
 
     const body =
       await request.json();
+
+    const termsAccepted =
+      body?.terms_accepted === true;
+
+    const refundAccepted =
+      body?.refund_policy_accepted ===
+      true;
+
+    if (!termsAccepted) {
+      return NextResponse.json(
+        {
+          error:
+            "Terms of Service must be accepted before continuing.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    if (!refundAccepted) {
+      return NextResponse.json(
+        {
+          error:
+            "Refund & Cancellation Policy must be accepted before continuing.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
 
     const rawAmount =
       Number(body?.amount);
@@ -130,6 +164,9 @@ export async function POST(
     const providerReference =
       randomUUID();
 
+    const acceptedAt =
+      new Date().toISOString();
+
     const {
       data,
       error,
@@ -140,15 +177,20 @@ export async function POST(
         )
         .insert({
           user_id: userId,
+
           amount,
-          currency: "TRY",
+
+          currency:
+            "TRY",
+
           note:
             note || null,
 
           status:
             "pending",
 
-          provider: null,
+          provider:
+            null,
 
           provider_payment_id:
             null,
@@ -166,8 +208,20 @@ export async function POST(
           supporter_level:
             "supporter",
 
+          terms_accepted_at:
+            acceptedAt,
+
+          refund_policy_accepted_at:
+            acceptedAt,
+
+          terms_version:
+            TERMS_VERSION,
+
+          refund_policy_version:
+            REFUND_POLICY_VERSION,
+
           updated_at:
-            new Date().toISOString(),
+            acceptedAt,
         })
         .select(
           `
@@ -178,6 +232,10 @@ export async function POST(
             provider_reference,
             public_supporter,
             supporter_name,
+            terms_accepted_at,
+            refund_policy_accepted_at,
+            terms_version,
+            refund_policy_version,
             created_at
           `
         )
@@ -206,21 +264,41 @@ export async function POST(
     return NextResponse.json(
       {
         payment: {
-          id: data.id,
+          id:
+            data.id,
+
           amount:
             Number(
               data.amount
             ),
+
           currency:
             data.currency,
+
           status:
             data.status,
+
           reference:
             data.provider_reference,
+
           public_supporter:
             data.public_supporter,
+
           supporter_name:
             data.supporter_name,
+
+          terms_accepted_at:
+            data.terms_accepted_at,
+
+          refund_policy_accepted_at:
+            data.refund_policy_accepted_at,
+
+          terms_version:
+            data.terms_version,
+
+          refund_policy_version:
+            data.refund_policy_version,
+
           created_at:
             data.created_at,
         },

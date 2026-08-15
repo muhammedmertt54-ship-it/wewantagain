@@ -90,6 +90,16 @@ export default function SupportPage() {
   ] = useState("");
 
   const [
+    acceptedTerms,
+    setAcceptedTerms,
+  ] = useState(false);
+
+  const [
+    acceptedRefund,
+    setAcceptedRefund,
+  ] = useState(false);
+
+  const [
     message,
     setMessage,
   ] = useState("");
@@ -169,6 +179,17 @@ export default function SupportPage() {
       return;
     }
 
+    if (
+      !acceptedTerms ||
+      !acceptedRefund
+    ) {
+      setErrorMessage(
+        "Please accept the Terms of Service and Refund Policy before continuing."
+      );
+
+      return;
+    }
+
     setCreating(true);
 
     try {
@@ -188,7 +209,7 @@ export default function SupportPage() {
           `Bearer ${token}`;
       }
 
-           const response =
+      const response =
         await fetch(
           "/api/support-payments/create",
           {
@@ -198,6 +219,13 @@ export default function SupportPage() {
             body:
               JSON.stringify({
                 amount,
+
+terms_accepted:
+  acceptedTerms,
+
+refund_policy_accepted:
+  acceptedRefund,
+
 
                 note:
                   note.trim(),
@@ -544,6 +572,80 @@ export default function SupportPage() {
               </div>
             </div>
 
+            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={
+                    acceptedTerms
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setAcceptedTerms(
+                      event.target
+                        .checked
+                    )
+                  }
+                  className="mt-1 h-5 w-5"
+                />
+
+                <span className="text-sm leading-6 text-slate-700">
+                  I have read and accept the{" "}
+                  <a
+                    href="/terms"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-black text-violet-600 hover:text-violet-800"
+                  >
+                    Terms of Service
+                  </a>
+                  .
+                </span>
+              </label>
+
+              <label className="mt-4 flex cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={
+                    acceptedRefund
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setAcceptedRefund(
+                      event.target
+                        .checked
+                    )
+                  }
+                  className="mt-1 h-5 w-5"
+                />
+
+                <span className="text-sm leading-6 text-slate-700">
+                  I have read the{" "}
+                  <a
+                    href="/refund"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-black text-violet-600 hover:text-violet-800"
+                  >
+                    Refund & Cancellation Policy
+                  </a>{" "}
+                  and understand the applicable
+                  cancellation and refund terms.
+                </span>
+              </label>
+
+              <p className="mt-4 text-xs leading-5 text-slate-500">
+                Continuing only creates a
+                supporter payment request.
+                Supporter benefits are not
+                activated until the payment
+                provider verifies successful
+                payment.
+              </p>
+            </div>
+
             {errorMessage && (
               <div className="mt-5 rounded-xl bg-red-50 p-4 text-sm font-bold text-red-700">
                 {errorMessage}
@@ -596,7 +698,11 @@ export default function SupportPage() {
 
             <button
               type="button"
-              disabled={creating}
+              disabled={
+                creating ||
+                !acceptedTerms ||
+                !acceptedRefund
+              }
               onClick={
                 handleContinue
               }
