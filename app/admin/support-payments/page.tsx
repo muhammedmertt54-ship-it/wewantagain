@@ -200,6 +200,18 @@ export default function AdminSupportPaymentsPage() {
   ] = useState("");
 
   const [
+    successMessage,
+    setSuccessMessage,
+  ] = useState("");
+
+  const [
+    testLoadingId,
+    setTestLoadingId,
+  ] = useState<
+    number | null
+  >(null);
+
+  const [
     currentRole,
     setCurrentRole,
   ] = useState<
@@ -307,6 +319,122 @@ export default function AdminSupportPaymentsPage() {
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  }
+
+  async function testMarkPaid(
+    payment: SupportPayment
+  ) {
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    if (
+      currentRole !== "owner"
+    ) {
+      setErrorMessage(
+        "Only the Owner can run the temporary payment test."
+      );
+
+      return;
+    }
+
+    if (
+      payment.status !==
+      "pending"
+    ) {
+      setErrorMessage(
+        "Only pending payments can be used for this test."
+      );
+
+      return;
+    }
+
+    const confirmed =
+      window.confirm(
+        `TEST ONLY\n\nMark Payment #${payment.id} (${formatMoney(
+          payment.amount,
+          payment.currency
+        )}) as PAID using the temporary manual-test provider?\n\nThis will update the linked profile supporter level.`
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const token =
+      await getAccessToken();
+
+    if (!token) {
+      setErrorMessage(
+        "Owner session expired."
+      );
+
+      return;
+    }
+
+    setTestLoadingId(
+      payment.id
+    );
+
+    try {
+      const response =
+        await fetch(
+          "/api/admin/support-payments/test-paid",
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+
+              Authorization:
+                `Bearer ${token}`,
+            },
+
+            body:
+              JSON.stringify({
+                paymentId:
+                  payment.id,
+
+                confirmation:
+                  "CONFIRM_TEST_PAYMENT",
+              }),
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error ??
+            "Test payment confirmation failed."
+        );
+      }
+
+      setSuccessMessage(
+        `Payment #${payment.id} was marked paid for TESTING. Level: ${
+          data?.payment
+            ?.supporter_level ??
+          "unknown"
+        }.`
+      );
+
+      await loadPayments(
+        true
+      );
+    } catch (error) {
+      console.error(error);
+
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Test payment confirmation failed."
+      );
+    } finally {
+      setTestLoadingId(
+        null
+      );
     }
   }
 
@@ -458,6 +586,33 @@ export default function AdminSupportPaymentsPage() {
           </div>
         </div>
 
+        {currentRole ===
+          "owner" && (
+          <div className="mt-6 rounded-2xl border border-red-300 bg-red-50 p-5 text-sm leading-6 text-red-900">
+            <div className="font-black">
+              TEMPORARY PAYMENT TEST MODE
+            </div>
+
+            <p className="mt-1">
+              Owner-only TEST PAID buttons are temporarily enabled.
+              These are not real provider confirmations and will be removed
+              after the supporter-level test is complete.
+            </p>
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="mt-6 rounded-2xl border border-green-200 bg-green-50 p-5 text-sm font-bold text-green-800">
+            {successMessage}
+          </div>
+        )}
+
+        {errorMessage && (
+          <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-bold text-red-700">
+            {errorMessage}
+          </div>
+        )}
+
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
             <div className="text-xs font-black uppercase tracking-wider text-slate-400">
@@ -555,14 +710,12 @@ export default function AdminSupportPaymentsPage() {
           </div>
 
           <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-            Payment status cannot be
-            manually changed here.
+            In production, payment status cannot be manually changed.
             A payment may only become
             <strong>
               {" "}paid{" "}
             </strong>
-            after a verified payment
-            provider callback.
+            after a verified payment provider callback.
           </div>
 
           {loading && (
@@ -571,13 +724,6 @@ export default function AdminSupportPaymentsPage() {
               payments...
             </div>
           )}
-
-          {!loading &&
-            errorMessage && (
-              <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-bold text-red-700">
-                {errorMessage}
-              </div>
-            )}
 
           {!loading &&
             !errorMessage &&
@@ -596,7 +742,6 @@ export default function AdminSupportPaymentsPage() {
             )}
 
           {!loading &&
-            !errorMessage &&
             filteredPayments.length >
               0 && (
               <div className="mt-6 space-y-4">
@@ -685,17 +830,45 @@ export default function AdminSupportPaymentsPage() {
                           </div>
                         </div>
 
-                        <div className="rounded-2xl bg-slate-950 px-5 py-4 text-white xl:min-w-56">
-                          <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                            Public supporter
+                        <div className="flex flex-col gap-3 xl:min-w-56">
+                          <div className="rounded-2xl bg-slate-950 px-5 py-4 text-white">
+                            <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                              Public supporter
+                            </div>
+
+                            <div className="mt-2 text-lg font-black">
+                              {payment.public_supporter
+                                ? payment.supporter_name ||
+                                  "Enabled"
+                                : "Hidden"}
+                            </div>
                           </div>
 
-                          <div className="mt-2 text-lg font-black">
-                            {payment.public_supporter
-                              ? payment.supporter_name ||
-                                "Enabled"
-                              : "Hidden"}
-                          </div>
+                          {currentRole ===
+                            "owner" &&
+                            payment.status ===
+                              "pending" &&
+                            !payment.provider &&
+                            !payment.provider_payment_id && (
+                              <button
+                                type="button"
+                                disabled={
+                                  testLoadingId !==
+                                  null
+                                }
+                                onClick={() =>
+                                  testMarkPaid(
+                                    payment
+                                  )
+                                }
+                                className="rounded-2xl bg-red-600 px-5 py-4 text-sm font-black text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {testLoadingId ===
+                                payment.id
+                                  ? "TESTING..."
+                                  : "TEST PAID"}
+                              </button>
+                            )}
                         </div>
                       </div>
 
