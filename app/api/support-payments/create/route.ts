@@ -9,6 +9,8 @@ const MAX_AMOUNT = 100000;
 const TERMS_VERSION = "2026-08-15";
 const REFUND_POLICY_VERSION = "2026-08-15";
 
+const PENDING_REUSE_MINUTES = 10;
+
 function cleanText(
   value: unknown,
   maxLength: number
@@ -161,6 +163,131 @@ export async function POST(
       }
     }
 
+    const cutoff =
+      new Date(
+        Date.now() -
+          PENDING_REUSE_MINUTES *
+            60 *
+            1000
+      ).toISOString();
+
+    if (userId) {
+      const {
+        data:
+          existingPayment,
+        error:
+          existingPaymentError,
+      } =
+        await supabaseAdmin
+          .from(
+            "support_payments"
+          )
+          .select(
+            `
+              id,
+              amount,
+              currency,
+              status,
+              provider_reference,
+              public_supporter,
+              supporter_name,
+              terms_accepted_at,
+              refund_policy_accepted_at,
+              terms_version,
+              refund_policy_version,
+              created_at
+            `
+          )
+          .eq(
+            "user_id",
+            userId
+          )
+          .eq(
+            "status",
+            "pending"
+          )
+          .eq(
+            "amount",
+            amount
+          )
+          .gte(
+            "created_at",
+            cutoff
+          )
+          .order(
+            "created_at",
+            {
+              ascending:
+                false,
+            }
+          )
+          .limit(1)
+          .maybeSingle();
+
+      if (
+        existingPaymentError
+      ) {
+        console.error(
+          "Pending payment lookup error:",
+          existingPaymentError
+        );
+      }
+
+      if (
+        existingPayment
+      ) {
+        return NextResponse.json(
+          {
+            payment: {
+              id:
+                existingPayment.id,
+
+              amount:
+                Number(
+                  existingPayment.amount
+                ),
+
+              currency:
+                existingPayment.currency,
+
+              status:
+                existingPayment.status,
+
+              reference:
+                existingPayment.provider_reference,
+
+              public_supporter:
+                existingPayment.public_supporter,
+
+              supporter_name:
+                existingPayment.supporter_name,
+
+              terms_accepted_at:
+                existingPayment.terms_accepted_at,
+
+              refund_policy_accepted_at:
+                existingPayment.refund_policy_accepted_at,
+
+              terms_version:
+                existingPayment.terms_version,
+
+              refund_policy_version:
+                existingPayment.refund_policy_version,
+
+              created_at:
+                existingPayment.created_at,
+            },
+
+            reused:
+              true,
+          },
+          {
+            status: 200,
+          }
+        );
+      }
+    }
+
     const providerReference =
       randomUUID();
 
@@ -302,6 +429,9 @@ export async function POST(
           created_at:
             data.created_at,
         },
+
+        reused:
+          false,
       },
       {
         status: 201,
