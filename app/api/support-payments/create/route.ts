@@ -1,9 +1,6 @@
-import {
-  NextRequest,
-  NextResponse,
-} from "next/server";
-
 import { randomUUID } from "crypto";
+import { NextRequest, NextResponse } from "next/server";
+
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 const MIN_AMOUNT = 1;
@@ -13,55 +10,13 @@ function cleanText(
   value: unknown,
   maxLength: number
 ) {
-  if (
-    typeof value !== "string"
-  ) {
+  if (typeof value !== "string") {
     return "";
   }
 
   return value
     .trim()
-    .slice(
-      0,
-      maxLength
-    );
-}
-
-async function getOptionalUser(
-  request: NextRequest
-) {
-  const authorization =
-    request.headers.get(
-      "authorization"
-    );
-
-  if (
-    !authorization?.startsWith(
-      "Bearer "
-    )
-  ) {
-    return null;
-  }
-
-  const token =
-    authorization.slice(7);
-
-  const {
-    data: { user },
-    error,
-  } =
-    await supabaseAdmin.auth.getUser(
-      token
-    );
-
-  if (
-    error ||
-    !user
-  ) {
-    return null;
-  }
-
-  return user;
+    .slice(0, maxLength);
 }
 
 export async function POST(
@@ -72,17 +27,19 @@ export async function POST(
       Number(
         request.headers.get(
           "content-length"
-        ) ?? 0
+        ) ?? "0"
       );
 
     if (
-      contentLength >
-      20_000
+      Number.isFinite(
+        contentLength
+      ) &&
+      contentLength > 20000
     ) {
       return NextResponse.json(
         {
           error:
-            "Request is too large.",
+            "Request body is too large.",
         },
         {
           status: 413,
@@ -93,24 +50,18 @@ export async function POST(
     const body =
       await request.json();
 
-    const amount =
-      Number(
-        body?.amount
-      );
+    const rawAmount =
+      Number(body?.amount);
 
     if (
-      !Number.isFinite(
-        amount
-      ) ||
-      amount <
-        MIN_AMOUNT ||
-      amount >
-        MAX_AMOUNT
+      !Number.isFinite(rawAmount) ||
+      rawAmount < MIN_AMOUNT ||
+      rawAmount > MAX_AMOUNT
     ) {
       return NextResponse.json(
         {
           error:
-            `Donation amount must be between ₺${MIN_AMOUNT} and ₺${MAX_AMOUNT}.`,
+            "Invalid support amount.",
         },
         {
           status: 400,
@@ -118,9 +69,9 @@ export async function POST(
       );
     }
 
-    const normalizedAmount =
+    const amount =
       Math.round(
-        amount * 100
+        rawAmount * 100
       ) / 100;
 
     const note =
@@ -141,42 +92,63 @@ export async function POST(
           )
         : "";
 
-    const user =
-      await getOptionalUser(
-        request
+    let userId:
+      | string
+      | null = null;
+
+    const authorization =
+      request.headers.get(
+        "authorization"
       );
+
+    if (
+      authorization?.startsWith(
+        "Bearer "
+      )
+    ) {
+      const accessToken =
+        authorization
+          .slice(7)
+          .trim();
+
+      if (accessToken) {
+        const {
+          data: {
+            user,
+          },
+        } =
+          await supabaseAdmin.auth.getUser(
+            accessToken
+          );
+
+        if (user?.id) {
+          userId = user.id;
+        }
+      }
+    }
 
     const providerReference =
       randomUUID();
 
     const {
-      data: donation,
+      data,
       error,
     } =
       await supabaseAdmin
         .from(
-          "donations"
+          "support_payments"
         )
         .insert({
-          user_id:
-            user?.id ??
-            null,
-
-          amount:
-            normalizedAmount,
-
-          currency:
-            "TRY",
-
+          user_id: userId,
+          amount,
+          currency: "TRY",
           note:
-            note ||
-            null,
+            note || null,
 
           status:
             "pending",
 
-          provider:
-            null,
+          provider: null,
 
           provider_payment_id:
             null,
@@ -195,33 +167,35 @@ export async function POST(
             "supporter",
 
           updated_at:
-            new Date()
-              .toISOString(),
+            new Date().toISOString(),
         })
         .select(
           `
-          id,
-          amount,
-          currency,
-          status,
-          provider_reference,
-          public_supporter,
-          supporter_name,
-          created_at
+            id,
+            amount,
+            currency,
+            status,
+            provider_reference,
+            public_supporter,
+            supporter_name,
+            created_at
           `
         )
         .single();
 
-    if (error) {
+    if (
+      error ||
+      !data
+    ) {
       console.error(
-        "Donation create error:",
+        "Support payment insert error:",
         error
       );
 
       return NextResponse.json(
         {
           error:
-            "Donation could not be created.",
+            "Support payment could not be created.",
         },
         {
           status: 500,
@@ -231,32 +205,24 @@ export async function POST(
 
     return NextResponse.json(
       {
-        success: true,
-
-        donation: {
-          id:
-            donation.id,
-
+        payment: {
+          id: data.id,
           amount:
-            donation.amount,
-
+            Number(
+              data.amount
+            ),
           currency:
-            donation.currency,
-
+            data.currency,
           status:
-            donation.status,
-
+            data.status,
           reference:
-            donation.provider_reference,
-
+            data.provider_reference,
           public_supporter:
-            donation.public_supporter,
-
+            data.public_supporter,
           supporter_name:
-            donation.supporter_name,
-
+            data.supporter_name,
           created_at:
-            donation.created_at,
+            data.created_at,
         },
       },
       {
@@ -265,14 +231,14 @@ export async function POST(
     );
   } catch (error) {
     console.error(
-      "Donation create API error:",
+      "Support payment create error:",
       error
     );
 
     return NextResponse.json(
       {
         error:
-          "Unexpected server error.",
+          "Support payment could not be created.",
       },
       {
         status: 500,
