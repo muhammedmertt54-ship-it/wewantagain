@@ -36,9 +36,7 @@ export async function POST(
       );
 
     if (
-      Number.isFinite(
-        contentLength
-      ) &&
+      Number.isFinite(contentLength) &&
       contentLength > 20000
     ) {
       return NextResponse.json(
@@ -149,9 +147,7 @@ export async function POST(
 
       if (accessToken) {
         const {
-          data: {
-            user,
-          },
+          data: { user },
         } =
           await supabaseAdmin.auth.getUser(
             accessToken
@@ -278,8 +274,7 @@ export async function POST(
                 existingPayment.created_at,
             },
 
-            reused:
-              true,
+            reused: true,
           },
           {
             status: 200,
@@ -307,8 +302,7 @@ export async function POST(
 
           amount,
 
-          currency:
-            "TRY",
+          currency: "TRY",
 
           note:
             note || null,
@@ -333,7 +327,7 @@ export async function POST(
             null,
 
           supporter_level:
-            "supporter",
+            null,
 
           terms_accepted_at:
             acceptedAt,
@@ -430,8 +424,7 @@ export async function POST(
             data.created_at,
         },
 
-        reused:
-          false,
+        reused: false,
       },
       {
         status: 201,
