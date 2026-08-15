@@ -822,6 +822,16 @@ export default function AdminPage() {
             </a>
             )}
 
+            {adminRole !==
+              "moderator" && (
+              <a
+                href="/admin/support-payments"
+                className="rounded-xl border border-fuchsia-200 bg-fuchsia-50 px-4 py-3 text-sm font-black text-fuchsia-700 hover:bg-fuchsia-100"
+              >
+                Support Payments
+              </a>
+            )}
+
             <a
               href="/"
               className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold hover:border-violet-300"
