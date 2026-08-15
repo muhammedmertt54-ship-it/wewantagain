@@ -82,6 +82,13 @@ export default function RootLayout({
                 </Link>
 
                 <Link
+                  href="/supporters"
+                  className="text-slate-500 transition hover:text-violet-600"
+                >
+                  Supporters Wall
+                </Link>
+
+                <Link
                   href="/terms"
                   className="text-slate-500 transition hover:text-violet-600"
                 >
