@@ -1,8 +1,13 @@
 import SupportButton from "../SupportButton";
 import ShareButtons from "../ShareButtons";
-import { supabase } from "../../../lib/supabase";
+import AdminCampaignControls from "../AdminCampaignControls";
 
-export const dynamic = "force-dynamic";
+import {
+  supabase,
+} from "../../../lib/supabase";
+
+export const dynamic =
+  "force-dynamic";
 
 type CampaignPageProps = {
   params: Promise<{
@@ -13,46 +18,96 @@ type CampaignPageProps = {
 export default async function CampaignPage({
   params,
 }: CampaignPageProps) {
-  const { slug } = await params;
+  const {
+    slug,
+  } =
+    await params;
 
-  const { data: campaign, error: campaignError } = await supabase
-    .from("campaigns")
-    .select(
-      "slug, title, subtitle, category, target, description, goal, status, image_url, image_removed"
-    )
-    .eq("slug", slug)
-    .eq("status", "active")
-    .single();
+  const {
+    data: campaign,
+    error:
+      campaignError,
+  } =
+    await supabase
+      .from(
+        "campaigns"
+      )
+      .select(
+        "id, slug, title, subtitle, category, target, description, goal, status, image_url, image_removed"
+      )
+      .eq(
+        "slug",
+        slug
+      )
+      .eq(
+        "status",
+        "active"
+      )
+      .single();
 
-  const { data: verifiedCount, error: countError } = await supabase.rpc(
-    "get_verified_support_count",
-    {
-      p_campaign_slug: slug,
-    }
-  );
+  const {
+    data:
+      verifiedCount,
 
-  const realSupporters = countError
-    ? 0
-    : Number(verifiedCount ?? 0);
+    error:
+      countError,
+  } =
+    await supabase.rpc(
+      "get_verified_support_count",
+      {
+        p_campaign_slug:
+          slug,
+      }
+    );
 
-  const { data: countryRows, error: countryError } = await supabase.rpc(
-    "get_verified_support_countries",
-    {
-      p_campaign_slug: slug,
-    }
-  );
+  const realSupporters =
+    countError
+      ? 0
+      : Number(
+          verifiedCount ??
+            0
+        );
+
+  const {
+    data:
+      countryRows,
+
+    error:
+      countryError,
+  } =
+    await supabase.rpc(
+      "get_verified_support_countries",
+      {
+        p_campaign_slug:
+          slug,
+      }
+    );
 
   const countries =
-    countryError || !countryRows
+    countryError ||
+    !countryRows
       ? []
       : countryRows.map(
-          (row: { country: string; count: number }) => ({
-            name: row.country,
-            count: Number(row.count),
+          (
+            row: {
+              country: string;
+              count: number;
+            }
+          ) => ({
+            name:
+              row.country,
+
+            count:
+              Number(
+                row.count
+              ),
           })
         );
 
-  if (campaignError || !campaign) {
+  if (
+    campaignError ||
+    !campaign
+  ) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
         <div className="text-center">
@@ -71,24 +126,42 @@ export default async function CampaignPage({
     );
   }
 
-  const goal = Number(campaign.goal ?? 1000000);
+  const goal =
+    Number(
+      campaign.goal ??
+        1000000
+    );
 
   const realProgress =
     goal > 0
-      ? Math.min((realSupporters / goal) * 100, 100)
+      ? Math.min(
+          (
+            realSupporters /
+            goal
+          ) *
+            100,
+          100
+        )
       : 0;
 
   const showImage =
-    !!campaign.image_url && campaign.image_removed !== true;
+    !!campaign.image_url &&
+    campaign.image_removed !==
+      true;
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
-          <a href="/" className="block">
+          <a
+            href="/"
+            className="block"
+          >
             <div className="text-2xl font-black tracking-tight">
               WEWANT
-              <span className="text-violet-600">AGAIN</span>
+              <span className="text-violet-600">
+                AGAIN
+              </span>
             </div>
 
             <div className="text-xs font-bold tracking-[0.18em] text-slate-400">
@@ -110,8 +183,12 @@ export default async function CampaignPage({
           {showImage ? (
             <div className="aspect-[16/10] w-full bg-slate-100">
               <img
-                src={campaign.image_url}
-                alt={campaign.subtitle}
+                src={
+                  campaign.image_url
+                }
+                alt={
+                  campaign.subtitle
+                }
                 className="h-full w-full object-cover"
               />
             </div>
@@ -119,11 +196,15 @@ export default async function CampaignPage({
             <div className="flex aspect-[16/10] w-full items-center justify-center bg-gradient-to-br from-slate-900 via-violet-950 to-indigo-700 p-8 text-center text-white">
               <div>
                 <div className="text-sm font-bold uppercase tracking-widest text-white/60">
-                  {campaign.category}
+                  {
+                    campaign.category
+                  }
                 </div>
 
                 <div className="mt-3 text-4xl font-black">
-                  {campaign.subtitle}
+                  {
+                    campaign.subtitle
+                  }
                 </div>
 
                 <p className="mt-3 text-white/60">
@@ -135,11 +216,15 @@ export default async function CampaignPage({
 
           <div className="p-6">
             <div className="inline-block rounded-full bg-violet-100 px-4 py-2 text-sm font-black text-violet-700">
-              {campaign.category}
+              {
+                campaign.category
+              }
             </div>
 
             <h2 className="mt-4 text-3xl font-black">
-              {campaign.subtitle}
+              {
+                campaign.subtitle
+              }
             </h2>
 
             <p className="mt-2 text-slate-500">
@@ -154,11 +239,15 @@ export default async function CampaignPage({
           </div>
 
           <h1 className="text-5xl font-black leading-tight">
-            {campaign.title}
+            {
+              campaign.title
+            }
           </h1>
 
           <p className="mt-3 text-2xl font-bold text-violet-600">
-            {campaign.subtitle}
+            {
+              campaign.subtitle
+            }
           </p>
 
           <div className="mt-8 rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
@@ -188,15 +277,21 @@ export default async function CampaignPage({
               <div
                 className="h-full rounded-full bg-violet-600"
                 style={{
-                  width: `${realProgress}%`,
+                  width:
+                    `${realProgress}%`,
                 }}
               />
             </div>
 
             <div className="mt-2 text-right text-sm font-bold text-violet-600">
-              {realProgress < 0.01 && realSupporters > 0
+              {realProgress <
+                0.01 &&
+              realSupporters >
+                0
                 ? "<0.01"
-                : realProgress.toFixed(2)}
+                : realProgress.toFixed(
+                    2
+                  )}
               % of goal
             </div>
           </div>
@@ -219,6 +314,17 @@ export default async function CampaignPage({
         </div>
       </section>
 
+      <AdminCampaignControls
+        campaignId={
+          Number(
+            campaign.id
+          )
+        }
+        campaignTitle={
+          campaign.title
+        }
+      />
+
       <section className="mx-auto grid max-w-7xl gap-8 px-6 pb-16 lg:grid-cols-[1.4fr_0.6fr]">
         <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
           <h2 className="text-3xl font-black">
@@ -226,7 +332,9 @@ export default async function CampaignPage({
           </h2>
 
           <p className="mt-5 whitespace-pre-wrap text-lg leading-8 text-slate-600">
-            {campaign.description}
+            {
+              campaign.description
+            }
           </p>
 
           <div className="mt-8 border-t border-slate-100 pt-8">
@@ -235,7 +343,9 @@ export default async function CampaignPage({
             </h3>
 
             <div className="mt-3 rounded-xl bg-slate-50 p-5 font-bold">
-              {campaign.target}
+              {
+                campaign.target
+              }
             </div>
           </div>
         </div>
@@ -247,23 +357,40 @@ export default async function CampaignPage({
             </h2>
 
             <div className="mt-5 space-y-4">
-              {countries.length === 0 ? (
+              {countries.length ===
+              0 ? (
                 <p className="text-sm text-slate-500">
                   No verified supporters yet.
                 </p>
               ) : (
                 countries.map(
-                  (item: { name: string; count: number }) => {
+                  (
+                    item: {
+                      name: string;
+                      count: number;
+                    }
+                  ) => {
                     const percent =
-                      realSupporters > 0
-                        ? (item.count / realSupporters) * 100
+                      realSupporters >
+                      0
+                        ? (
+                            item.count /
+                            realSupporters
+                          ) *
+                          100
                         : 0;
 
                     return (
                       <Country
-                        key={item.name}
-                        name={item.name}
-                        percent={Math.round(percent)}
+                        key={
+                          item.name
+                        }
+                        name={
+                          item.name
+                        }
+                        percent={Math.round(
+                          percent
+                        )}
                       />
                     );
                   }
@@ -295,7 +422,9 @@ function Country({
   return (
     <div>
       <div className="flex justify-between text-sm">
-        <span>{name}</span>
+        <span>
+          {name}
+        </span>
 
         <span className="font-bold">
           {percent}%
@@ -306,7 +435,8 @@ function Country({
         <div
           className="h-full rounded-full bg-violet-600"
           style={{
-            width: `${percent}%`,
+            width:
+              `${percent}%`,
           }}
         />
       </div>

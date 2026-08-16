@@ -1,9 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 import {
   AdminRole,
-  requireAdminRole,
 } from "../../../../../lib/admin/requireAdminRole";
+import {
+  secureAdminApi,
+} from "../../../../../lib/security/secureAdminApi";
+import {
+  parseJsonBody,
+  secureJson,
+} from "../../../../../lib/security/requestSecurity";
 
 type UserAction =
   | "ban-user"
@@ -15,6 +21,23 @@ type UserAction =
   | "make-admin"
   | "remove-admin"
   | "set-admin-role";
+
+const MAX_BODY_BYTES =
+  12_000;
+
+const ADMIN_ACTION_RATE_LIMIT =
+  20;
+
+const ADMIN_ACTION_RATE_WINDOW_MS =
+  60_000;
+
+type ManageUserBody = {
+  action?: unknown;
+  userId?: unknown;
+  ipAddress?: unknown;
+  reason?: unknown;
+  role?: unknown;
+};
 
 async function writeAuditLog({
   adminUserId,
@@ -157,22 +180,73 @@ function canManageTargetAdmin({
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const auth =
-      await requireAdminRole(
-        request,
-        [
+  const security =
+    await secureAdminApi(
+      request,
+      {
+        scope:
+          "admin-users-manage",
+
+        allowedRoles: [
           "owner",
           "admin",
           "moderator",
-        ]
+        ],
+
+        requireSameOrigin:
+          true,
+
+        blockSuspiciousHeaders:
+          true,
+
+        rateLimit: {
+          limit:
+            ADMIN_ACTION_RATE_LIMIT,
+
+          windowMs:
+            ADMIN_ACTION_RATE_WINDOW_MS,
+        },
+      }
+    );
+
+  if (!security.ok) {
+    return security.response;
+  }
+
+  const {
+    requestId,
+    user,
+    admin,
+  } = security;
+
+  try {
+    const parsed =
+      await parseJsonBody<ManageUserBody>(
+        request,
+        {
+          maxBytes:
+            MAX_BODY_BYTES,
+        }
       );
 
-    if (!auth.ok) {
-      return auth.response;
+    if (!parsed.ok) {
+      return secureJson(
+        {
+          error:
+            parsed.error,
+          request_id:
+            requestId,
+        },
+        {
+          status:
+            parsed.status,
+          requestId,
+        }
+      );
     }
 
-    const body = await request.json();
+    const body =
+      parsed.body;
 
     const action =
       typeof body?.action === "string"
@@ -215,30 +289,30 @@ export async function POST(request: NextRequest) {
       !action ||
       !allowedActions.includes(action)
     ) {
-      return NextResponse.json(
+      return secureJson(
         { error: "Invalid action." },
-        { status: 400 }
+        { status: 400, requestId }
       );
     }
 
 
     if (
       !actionAllowedForRole(
-        auth.admin.role,
+        admin.role,
         action
       )
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Your admin role does not have permission to perform this action.",
           role:
-            auth.admin.role,
+            admin.role,
           action,
+          request_id:
+            requestId,
         },
-        {
-          status: 403,
-        }
+        { status: 403, requestId }
       );
     }
 
@@ -254,14 +328,12 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         console.error(error);
 
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "Target admin role could not be verified.",
           },
-          {
-            status: 500,
-          }
+          { status: 500, requestId }
         );
       }
     }
@@ -281,41 +353,39 @@ export async function POST(request: NextRequest) {
       ) &&
       !canManageTargetAdmin({
         actorRole:
-          auth.admin.role,
+          admin.role,
         targetRole:
           targetAdminRole,
       })
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Your role cannot manage this admin account.",
         },
-        {
-          status: 403,
-        }
+        { status: 403, requestId }
       );
     }
 
     // BAN USER
     if (action === "ban-user") {
       if (!userId) {
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "User ID is required.",
           },
-          { status: 400 }
+          { status: 400, requestId }
         );
       }
 
-      if (userId === auth.user.id) {
-        return NextResponse.json(
+      if (userId === user.id) {
+        return secureJson(
           {
             error:
               "You cannot ban your own admin account.",
           },
-          { status: 400 }
+          { status: 400, requestId }
         );
       }
 
@@ -336,18 +406,16 @@ export async function POST(request: NextRequest) {
           banError
         );
 
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "User could not be banned.",
-            details:
-              banError.message,
           },
-          { status: 500 }
+          { status: 500, requestId }
         );
       }
 
-      // AÃ§Ä±k oturumlarÄ± da uygulama tarafÄ±nda iptal et.
+      // AÃƒÂ§Ã„Â±k oturumlarÃ„Â± da uygulama tarafÃ„Â±nda iptal et.
       const revokedBefore =
         new Date().toISOString();
 
@@ -361,7 +429,7 @@ export async function POST(request: NextRequest) {
             revoked_before:
               revokedBefore,
             updated_by:
-              auth.user.id,
+              user.id,
             updated_at:
               revokedBefore,
           },
@@ -379,7 +447,7 @@ export async function POST(request: NextRequest) {
 
       await writeAuditLog({
         adminUserId:
-          auth.user.id,
+          user.id,
         targetUserId:
           userId,
         action:
@@ -396,21 +464,25 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      return NextResponse.json({
-        success: true,
-        action: "ban-user",
-      });
+      return secureJson(
+        {
+          success: true,
+          action: "ban-user",
+          request_id: requestId,
+        },
+        { requestId }
+      );
     }
 
     // UNBAN USER
     if (action === "unban-user") {
       if (!userId) {
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "User ID is required.",
           },
-          { status: 400 }
+          { status: 400, requestId }
         );
       }
 
@@ -430,57 +502,59 @@ export async function POST(request: NextRequest) {
           unbanError
         );
 
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "User could not be unbanned.",
-            details:
-              unbanError.message,
           },
-          { status: 500 }
+          { status: 500, requestId }
         );
       }
 
       await writeAuditLog({
         adminUserId:
-          auth.user.id,
+          user.id,
         targetUserId:
           userId,
         action:
           "unban-user",
       });
 
-      return NextResponse.json({
-        success: true,
-        action: "unban-user",
-      });
+      return secureJson(
+        {
+          success: true,
+          action: "unban-user",
+          request_id: requestId,
+        },
+        { requestId }
+      );
     }
 
     // DELETE USER
     if (action === "delete-user") {
       if (!userId) {
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "User ID is required.",
           },
-          { status: 400 }
+          { status: 400, requestId }
         );
       }
 
-      if (userId === auth.user.id) {
-        return NextResponse.json(
+      if (userId === user.id) {
+        return secureJson(
           {
             error:
               "You cannot delete your own admin account.",
           },
-          { status: 400 }
+          { status: 400, requestId }
         );
       }
 
       await writeAuditLog({
         adminUserId:
-          auth.user.id,
+          user.id,
         targetUserId:
           userId,
         action:
@@ -500,42 +574,44 @@ export async function POST(request: NextRequest) {
           deleteError
         );
 
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "User could not be deleted.",
-            details:
-              deleteError.message,
           },
-          { status: 500 }
+          { status: 500, requestId }
         );
       }
 
-      return NextResponse.json({
-        success: true,
-        action: "delete-user",
-      });
+      return secureJson(
+        {
+          success: true,
+          action: "delete-user",
+          request_id: requestId,
+        },
+        { requestId }
+      );
     }
 
     // FORCE LOGOUT
     if (action === "force-logout") {
       if (!userId) {
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "User ID is required.",
           },
-          { status: 400 }
+          { status: 400, requestId }
         );
       }
 
-      if (userId === auth.user.id) {
-        return NextResponse.json(
+      if (userId === user.id) {
+        return secureJson(
           {
             error:
               "You cannot force logout your own admin account.",
           },
-          { status: 400 }
+          { status: 400, requestId }
         );
       }
 
@@ -556,7 +632,7 @@ export async function POST(request: NextRequest) {
               now,
 
             updated_by:
-              auth.user.id,
+              user.id,
 
             updated_at:
               now,
@@ -577,30 +653,28 @@ export async function POST(request: NextRequest) {
           forceLogoutError
         );
 
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "User sessions could not be ended.",
-            details:
-              forceLogoutError.message,
           },
-          { status: 500 }
+          { status: 500, requestId }
         );
       }
 
       if (!controlRow) {
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "Force logout marker was not saved.",
           },
-          { status: 500 }
+          { status: 500, requestId }
         );
       }
 
       await writeAuditLog({
         adminUserId:
-          auth.user.id,
+          user.id,
         targetUserId:
           userId,
         action:
@@ -611,24 +685,26 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      return NextResponse.json({
-        success: true,
-        action:
-          "force-logout",
-        revokedBefore:
-          controlRow.revoked_before,
-      });
+      return secureJson(
+        {
+          success: true,
+          action: "force-logout",
+          revokedBefore: controlRow.revoked_before,
+          request_id: requestId,
+        },
+        { requestId }
+      );
     }
 
     // MAKE ADMIN
     if (action === "make-admin") {
       if (!userId) {
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "User ID is required.",
           },
-          { status: 400 }
+          { status: 400, requestId }
         );
       }
 
@@ -636,14 +712,12 @@ export async function POST(request: NextRequest) {
         targetAdminRole ===
         "owner"
       ) {
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "Owner role cannot be changed through this action.",
           },
-          {
-            status: 403,
-          }
+          { status: 403, requestId }
         );
       }
 
@@ -670,20 +744,18 @@ export async function POST(request: NextRequest) {
           makeAdminError
         );
 
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "Admin permission could not be granted.",
-            details:
-              makeAdminError.message,
           },
-          { status: 500 }
+          { status: 500, requestId }
         );
       }
 
       await writeAuditLog({
         adminUserId:
-          auth.user.id,
+          user.id,
         targetUserId:
           userId,
         action:
@@ -694,14 +766,18 @@ export async function POST(request: NextRequest) {
           new_role:
             "admin",
           actor_role:
-            auth.admin.role,
+            admin.role,
         },
       });
 
-      return NextResponse.json({
-        success: true,
-        action: "make-admin",
-      });
+      return secureJson(
+        {
+          success: true,
+          action: "make-admin",
+          request_id: requestId,
+        },
+        { requestId }
+      );
     }
 
 
@@ -711,29 +787,25 @@ export async function POST(request: NextRequest) {
       "set-admin-role"
     ) {
       if (!userId) {
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "User ID is required.",
           },
-          {
-            status: 400,
-          }
+          { status: 400, requestId }
         );
       }
 
       if (
         userId ===
-        auth.user.id
+        user.id
       ) {
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "You cannot change your own owner role.",
           },
-          {
-            status: 400,
-          }
+          { status: 400, requestId }
         );
       }
 
@@ -743,14 +815,12 @@ export async function POST(request: NextRequest) {
         requestedRole !==
           "moderator"
       ) {
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "Role must be admin or moderator.",
           },
-          {
-            status: 400,
-          }
+          { status: 400, requestId }
         );
       }
 
@@ -758,14 +828,12 @@ export async function POST(request: NextRequest) {
         targetAdminRole ===
         "owner"
       ) {
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "Owner role cannot be changed.",
           },
-          {
-            status: 403,
-          }
+          { status: 403, requestId }
         );
       }
 
@@ -795,22 +863,18 @@ export async function POST(request: NextRequest) {
           roleUpdateError
         );
 
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "Admin role could not be updated.",
-            details:
-              roleUpdateError.message,
           },
-          {
-            status: 500,
-          }
+          { status: 500, requestId }
         );
       }
 
       await writeAuditLog({
         adminUserId:
-          auth.user.id,
+          user.id,
         targetUserId:
           userId,
         action:
@@ -821,38 +885,40 @@ export async function POST(request: NextRequest) {
           new_role:
             requestedRole,
           actor_role:
-            auth.admin.role,
+            admin.role,
         },
       });
 
-      return NextResponse.json({
-        success: true,
-        action:
-          "set-admin-role",
-        role:
-          requestedRole,
-      });
+      return secureJson(
+        {
+          success: true,
+          action: "set-admin-role",
+          role: requestedRole,
+          request_id: requestId,
+        },
+        { requestId }
+      );
     }
 
     // REMOVE ADMIN
     if (action === "remove-admin") {
       if (!userId) {
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "User ID is required.",
           },
-          { status: 400 }
+          { status: 400, requestId }
         );
       }
 
-      if (userId === auth.user.id) {
-        return NextResponse.json(
+      if (userId === user.id) {
+        return secureJson(
           {
             error:
               "You cannot remove your own admin permission.",
           },
-          { status: 400 }
+          { status: 400, requestId }
         );
       }
 
@@ -860,14 +926,12 @@ export async function POST(request: NextRequest) {
         targetAdminRole ===
         "owner"
       ) {
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "Owner permission cannot be removed.",
           },
-          {
-            status: 403,
-          }
+          { status: 403, requestId }
         );
       }
 
@@ -887,20 +951,18 @@ export async function POST(request: NextRequest) {
           removeAdminError
         );
 
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "Admin permission could not be removed.",
-            details:
-              removeAdminError.message,
           },
-          { status: 500 }
+          { status: 500, requestId }
         );
       }
 
       await writeAuditLog({
         adminUserId:
-          auth.user.id,
+          user.id,
         targetUserId:
           userId,
         action:
@@ -909,26 +971,29 @@ export async function POST(request: NextRequest) {
           removed_role:
             targetAdminRole,
           actor_role:
-            auth.admin.role,
+            admin.role,
         },
       });
 
-      return NextResponse.json({
-        success: true,
-        action:
-          "remove-admin",
-      });
+      return secureJson(
+        {
+          success: true,
+          action: "remove-admin",
+          request_id: requestId,
+        },
+        { requestId }
+      );
     }
 
     // BAN IP
     if (action === "ban-ip") {
       if (!ipAddress) {
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "IP address is required.",
           },
-          { status: 400 }
+          { status: 400, requestId }
         );
       }
 
@@ -946,7 +1011,7 @@ export async function POST(request: NextRequest) {
               reason || null,
 
             banned_by:
-              auth.user.id,
+              user.id,
           },
           {
             onConflict:
@@ -964,32 +1029,28 @@ export async function POST(request: NextRequest) {
           banIpError
         );
 
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "IP address could not be banned.",
-            details:
-              banIpError.message,
-            code:
-              banIpError.code,
           },
-          { status: 500 }
+          { status: 500, requestId }
         );
       }
 
       if (!bannedIp) {
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "IP ban was not saved.",
           },
-          { status: 500 }
+          { status: 500, requestId }
         );
       }
 
       await writeAuditLog({
         adminUserId:
-          auth.user.id,
+          user.id,
         targetUserId:
           userId || null,
         action:
@@ -1002,23 +1063,26 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      return NextResponse.json({
-        success: true,
-        action: "ban-ip",
-        ipAddress:
-          bannedIp.ip_address,
-      });
+      return secureJson(
+        {
+          success: true,
+          action: "ban-ip",
+          ipAddress: bannedIp.ip_address,
+          request_id: requestId,
+        },
+        { requestId }
+      );
     }
 
     // UNBAN IP
     if (action === "unban-ip") {
       if (!ipAddress) {
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "IP address is required.",
           },
-          { status: 400 }
+          { status: 400, requestId }
         );
       }
 
@@ -1042,22 +1106,18 @@ export async function POST(request: NextRequest) {
           unbanIpError
         );
 
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "IP address could not be unbanned.",
-            details:
-              unbanIpError.message,
-            code:
-              unbanIpError.code,
           },
-          { status: 500 }
+          { status: 500, requestId }
         );
       }
 
       await writeAuditLog({
         adminUserId:
-          auth.user.id,
+          user.id,
         targetUserId:
           userId || null,
         action:
@@ -1071,21 +1131,23 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      return NextResponse.json({
-        success: true,
-        action: "unban-ip",
-        ipAddress,
-      });
+      return secureJson(
+        {
+          success: true,
+          action: "unban-ip",
+          ipAddress,
+          request_id: requestId,
+        },
+        { requestId }
+      );
     }
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Unknown action.",
       },
-      {
-        status: 400,
-      }
+      { status: 400, requestId }
     );
   } catch (error) {
     console.error(
@@ -1093,14 +1155,12 @@ export async function POST(request: NextRequest) {
       error
     );
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Unexpected server error.",
       },
-      {
-        status: 500,
-      }
+      { status: 500, requestId }
     );
   }
 }

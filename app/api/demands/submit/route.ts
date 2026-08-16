@@ -4,9 +4,26 @@ import {
 } from "next/server";
 
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { secureApi } from "../../../../lib/security/secureApi";
+import {
+  secureJson,
+  validateBodySize,
+} from "../../../../lib/security/requestSecurity";
 
 const MAX_FILE_SIZE =
   5 * 1024 * 1024;
+
+const MAX_REQUEST_SIZE =
+  6 * 1024 * 1024;
+
+const SUBMIT_RATE_LIMIT =
+  3;
+
+const SUBMIT_RATE_WINDOW_MS =
+  10 * 60 * 1000;
+
+const DAILY_CAMPAIGN_LIMIT =
+  10;
 
 const ALLOWED_CATEGORIES = [
   "TV & Series",
@@ -53,12 +70,12 @@ function makeSlug(
       "tr-TR"
     )
     .trim()
-    .replace(/ğ/g, "g")
-    .replace(/ü/g, "u")
-    .replace(/ş/g, "s")
-    .replace(/ı/g, "i")
-    .replace(/ö/g, "o")
-    .replace(/ç/g, "c")
+    .replace(/ÄŸ/g, "g")
+    .replace(/Ã¼/g, "u")
+    .replace(/ÅŸ/g, "s")
+    .replace(/Ä±/g, "i")
+    .replace(/Ã¶/g, "o")
+    .replace(/Ã§/g, "c")
     .replace(
       /[^a-z0-9]+/g,
       "-"
@@ -141,68 +158,6 @@ function detectImage(
   return null;
 }
 
-async function getAuthenticatedUser(
-  request: NextRequest
-) {
-  const authorization =
-    request.headers.get(
-      "authorization"
-    );
-
-  if (
-    !authorization ||
-    !authorization.startsWith(
-      "Bearer "
-    )
-  ) {
-    return {
-      error:
-        NextResponse.json(
-          {
-            error:
-              "Authentication required.",
-          },
-          {
-            status: 401,
-          }
-        ),
-    };
-  }
-
-  const accessToken =
-    authorization.slice(7);
-
-  const {
-    data: { user },
-    error,
-  } =
-    await supabaseAdmin.auth.getUser(
-      accessToken
-    );
-
-  if (
-    error ||
-    !user
-  ) {
-    return {
-      error:
-        NextResponse.json(
-          {
-            error:
-              "Invalid or expired session.",
-          },
-          {
-            status: 401,
-          }
-        ),
-    };
-  }
-
-  return {
-    user,
-  };
-}
-
 async function submissionsAreEnabled() {
   const {
     data,
@@ -220,11 +175,11 @@ async function submissionsAreEnabled() {
     );
 
     /*
-     * Ayarlar okunamıyorsa güvenlik
-     * açısından fail-closed davranıyoruz.
+     * Ayarlar okunamÄ±yorsa gÃ¼venlik
+     * aÃ§Ä±sÄ±ndan fail-closed davranÄ±yoruz.
      *
      * Yani hata halinde kampanya
-     * gönderimine izin vermiyoruz.
+     * gÃ¶nderimine izin vermiyoruz.
      */
     return {
       enabled: false,
@@ -259,24 +214,113 @@ export async function POST(
   let uploadedImagePath =
     "";
 
+  const security =
+    await secureApi(
+      request,
+      {
+        scope:
+          "campaign-submit",
+
+        requireAuth:
+          true,
+
+        requireSameOrigin:
+          true,
+
+        blockSuspiciousHeaders:
+          true,
+
+        rateLimit: {
+          limit:
+            SUBMIT_RATE_LIMIT,
+
+          windowMs:
+            SUBMIT_RATE_WINDOW_MS,
+        },
+      }
+    );
+
+  if (!security.ok) {
+    return security.response;
+  }
+
+  const {
+    requestId,
+    user,
+  } = security;
+
+  if (!user?.id) {
+    return secureJson(
+      {
+        error:
+          "Authentication required.",
+        request_id:
+          requestId,
+      },
+      {
+        status: 401,
+        requestId,
+      }
+    );
+  }
+
+  const bodySizeCheck =
+    validateBodySize(
+      request,
+      MAX_REQUEST_SIZE
+    );
+
+  if (!bodySizeCheck.ok) {
+    return secureJson(
+      {
+        error:
+          bodySizeCheck.error,
+        request_id:
+          requestId,
+      },
+      {
+        status:
+          bodySizeCheck.status,
+        requestId,
+      }
+    );
+  }
+
+  const contentType =
+    request.headers
+      .get("content-type")
+      ?.toLowerCase() ??
+    "";
+
+  if (
+    !contentType.startsWith(
+      "multipart/form-data"
+    )
+  ) {
+    return secureJson(
+      {
+        error:
+          "Content-Type must be multipart/form-data.",
+        request_id:
+          requestId,
+      },
+      {
+        status: 415,
+        requestId,
+      }
+    );
+  }
+
   try {
     /*
-     * 1. Kullanıcı doğrulaması
+     * 1. Central authentication, ban/IP,
+     * session, origin and rate-limit
+     * checks already passed above.
      */
-    const auth =
-      await getAuthenticatedUser(
-        request
-      );
-
-    if (
-      "error" in auth
-    ) {
-      return auth.error;
-    }
 
     /*
      * 2. Admin Site Management
-     * ayarını server tarafında kontrol et.
+     * ayarÄ±nÄ± server tarafÄ±nda kontrol et.
      */
     const submissionStatus =
       await submissionsAreEnabled();
@@ -312,10 +356,107 @@ export async function POST(
     }
 
     /*
-     * 3. Multipart form
+     * 3. Durable abuse / cooldown protection.
+     *
+     * In-memory rate limiting can reset between
+     * serverless instances, so we also enforce
+     * a database-backed daily campaign limit.
      */
-    const formData =
-      await request.formData();
+    const dayAgo =
+      new Date(
+        Date.now() -
+          24 * 60 * 60 * 1000
+      ).toISOString();
+
+    const {
+      count:
+        recentCampaignCount,
+      error:
+        recentCampaignCountError,
+    } =
+      await supabaseAdmin
+        .from("campaigns")
+        .select(
+          "id",
+          {
+            count: "exact",
+            head: true,
+          }
+        )
+        .eq(
+          "created_by",
+          user.id
+        )
+        .gte(
+          "created_at",
+          dayAgo
+        );
+
+    if (
+      recentCampaignCountError
+    ) {
+      console.error(
+        "Campaign abuse check error:",
+        recentCampaignCountError
+      );
+
+      return secureJson(
+        {
+          error:
+            "Campaign submission is temporarily unavailable.",
+          request_id:
+            requestId,
+        },
+        {
+          status: 503,
+          requestId,
+        }
+      );
+    }
+
+    if (
+      (recentCampaignCount ?? 0) >=
+      DAILY_CAMPAIGN_LIMIT
+    ) {
+      return secureJson(
+        {
+          error:
+            "Daily campaign submission limit reached. Please try again later.",
+          code:
+            "CAMPAIGN_DAILY_LIMIT",
+          request_id:
+            requestId,
+        },
+        {
+          status: 429,
+          requestId,
+        }
+      );
+    }
+
+    /*
+     * 4. Multipart form
+     */
+    let formData:
+      FormData;
+
+    try {
+      formData =
+        await request.formData();
+    } catch {
+      return secureJson(
+        {
+          error:
+            "Invalid multipart form data.",
+          request_id:
+            requestId,
+        },
+        {
+          status: 400,
+          requestId,
+        }
+      );
+    }
 
     const title =
       cleanText(
@@ -376,7 +517,7 @@ export async function POST(
       );
 
     /*
-     * 4. Metin doğrulamaları
+     * 4. Metin doÄŸrulamalarÄ±
      */
     if (
       !title ||
@@ -450,7 +591,7 @@ export async function POST(
     }
 
     /*
-     * 5. Dosya kontrolü
+     * 5. Dosya kontrolÃ¼
      */
     if (
       !(image instanceof File)
@@ -496,10 +637,10 @@ export async function POST(
     }
 
     /*
-     * Tarayıcının gönderdiği
-     * image.type değerine güvenmiyoruz.
+     * TarayÄ±cÄ±nÄ±n gÃ¶nderdiÄŸi
+     * image.type deÄŸerine gÃ¼venmiyoruz.
      *
-     * Dosyanın gerçek ilk byte'larını
+     * DosyanÄ±n gerÃ§ek ilk byte'larÄ±nÄ±
      * kontrol ediyoruz.
      */
     const imageBuffer =
@@ -573,7 +714,7 @@ export async function POST(
       crypto.randomUUID();
 
     uploadedImagePath =
-      `${auth.user.id}/${fileId}.${imageInfo.extension}`;
+      `${user.id}/${fileId}.${imageInfo.extension}`;
 
     /*
      * 8. Server-side upload
@@ -666,8 +807,8 @@ export async function POST(
     }
 
     /*
-     * 10. Kampanyayı server tarafında
-     * oluştur.
+     * 10. KampanyayÄ± server tarafÄ±nda
+     * oluÅŸtur.
      */
     const {
       data: campaign,
@@ -698,7 +839,7 @@ export async function POST(
             "pending",
 
           created_by:
-            auth.user.id,
+            user.id,
 
           image_url:
             imageUrl,
@@ -730,8 +871,8 @@ export async function POST(
       );
 
       /*
-       * DB başarısız olursa
-       * orphan image bırakma.
+       * DB baÅŸarÄ±sÄ±z olursa
+       * orphan image bÄ±rakma.
        */
       if (
         uploadedImagePath
@@ -775,12 +916,12 @@ export async function POST(
     }
 
     /*
-     * Artık cleanup yapılmamalı.
+     * ArtÄ±k cleanup yapÄ±lmamalÄ±.
      */
     uploadedImagePath =
       "";
 
-    return NextResponse.json(
+    return secureJson(
       {
         success: true,
 
@@ -788,9 +929,13 @@ export async function POST(
           "Your demand was submitted successfully. It will appear after review.",
 
         campaign,
+
+        request_id:
+          requestId,
       },
       {
         status: 201,
+        requestId,
       }
     );
   } catch (error) {
@@ -801,7 +946,7 @@ export async function POST(
 
     /*
      * Beklenmeyen hata halinde bile
-     * yüklenmiş resmi temizlemeye çalış.
+     * yÃ¼klenmiÅŸ resmi temizlemeye Ã§alÄ±ÅŸ.
      */
     if (
       uploadedImagePath
@@ -824,13 +969,16 @@ export async function POST(
       }
     }
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Something went wrong. Please try again.",
+        request_id:
+          requestId,
       },
       {
         status: 500,
+        requestId,
       }
     );
   }

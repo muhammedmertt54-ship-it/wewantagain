@@ -1,10 +1,15 @@
 import {
   NextRequest,
-  NextResponse,
 } from "next/server";
 
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
-import { requireAdminRole } from "../../../../../lib/admin/requireAdminRole";
+import {
+  secureAdminApi,
+} from "../../../../../lib/security/secureAdminApi";
+import {
+  parseJsonBody,
+  secureJson,
+} from "../../../../../lib/security/requestSecurity";
 
 type CampaignStatus =
   | "pending"
@@ -15,6 +20,21 @@ type CampaignAction =
   | "set-status"
   | "remove-image"
   | "delete";
+
+const MAX_BODY_BYTES =
+  10_000;
+
+const CAMPAIGN_MANAGE_RATE_LIMIT =
+  30;
+
+const CAMPAIGN_MANAGE_RATE_WINDOW_MS =
+  60_000;
+
+type CampaignManageBody = {
+  campaignId?: unknown;
+  action?: unknown;
+  status?: unknown;
+};
 
 function isCampaignStatus(
   value: unknown
@@ -56,23 +76,73 @@ async function writeAuditLog({
 export async function POST(
   request: NextRequest
 ) {
-  try {
-    const auth =
-      await requireAdminRole(
-        request,
-        [
+  const security =
+    await secureAdminApi(
+      request,
+      {
+        scope:
+          "admin-campaigns-manage",
+
+        allowedRoles: [
           "owner",
           "admin",
           "moderator",
-        ]
+        ],
+
+        requireSameOrigin:
+          true,
+
+        blockSuspiciousHeaders:
+          true,
+
+        rateLimit: {
+          limit:
+            CAMPAIGN_MANAGE_RATE_LIMIT,
+
+          windowMs:
+            CAMPAIGN_MANAGE_RATE_WINDOW_MS,
+        },
+      }
+    );
+
+  if (!security.ok) {
+    return security.response;
+  }
+
+  const {
+    requestId,
+    user,
+    admin,
+  } = security;
+
+  try {
+    const parsed =
+      await parseJsonBody<CampaignManageBody>(
+        request,
+        {
+          maxBytes:
+            MAX_BODY_BYTES,
+        }
       );
 
-    if (!auth.ok) {
-      return auth.response;
+    if (!parsed.ok) {
+      return secureJson(
+        {
+          error:
+            parsed.error,
+          request_id:
+            requestId,
+        },
+        {
+          status:
+            parsed.status,
+          requestId,
+        }
+      );
     }
 
     const body =
-      await request.json();
+      parsed.body;
 
     const campaignId =
       Number(
@@ -91,14 +161,12 @@ export async function POST(
       ) ||
       campaignId < 1
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Invalid campaign ID.",
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
@@ -110,34 +178,36 @@ export async function POST(
         "delete",
       ].includes(action)
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Invalid action.",
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
+    /*
+     * Moderator may delete campaigns,
+     * but image-only removal remains
+     * restricted to Owner/Admin.
+     */
     if (
-      auth.admin.role ===
+      admin.role ===
         "moderator" &&
-      (
-        action ===
-          "delete" ||
-        action ===
-          "remove-image"
-      )
+      action ===
+        "remove-image"
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
-            "Owner or admin access required for this action.",
+            "Owner or admin access required to remove a campaign image.",
+          request_id:
+            requestId,
         },
         {
           status: 403,
+          requestId,
         }
       );
     }
@@ -163,26 +233,22 @@ export async function POST(
         campaignError
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Campaign could not be loaded.",
         },
-        {
-          status: 500,
-        }
+        { status: 500, requestId }
       );
     }
 
     if (!campaign) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Campaign not found.",
         },
-        {
-          status: 404,
-        }
+        { status: 404, requestId }
       );
     }
 
@@ -198,14 +264,12 @@ export async function POST(
           newStatus
         )
       ) {
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "Invalid campaign status.",
           },
-          {
-            status: 400,
-          }
+          { status: 400, requestId }
         );
       }
 
@@ -237,14 +301,12 @@ export async function POST(
           updateError
         );
 
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "Campaign status could not be updated.",
           },
-          {
-            status: 500,
-          }
+          { status: 500, requestId }
         );
       }
 
@@ -273,7 +335,7 @@ export async function POST(
 
       await writeAuditLog({
         adminUserId:
-          auth.user.id,
+          user.id,
 
         action:
           auditAction,
@@ -295,19 +357,22 @@ export async function POST(
             newStatus,
 
           admin_role:
-            auth.admin.role,
+            admin.role,
         },
       });
 
-      return NextResponse.json(
+      return secureJson(
         {
           success: true,
-
           action:
             "set-status",
-
           campaign:
             updatedCampaign,
+          request_id:
+            requestId,
+        },
+        {
+          requestId,
         }
       );
     }
@@ -338,14 +403,12 @@ export async function POST(
             storageError
           );
 
-          return NextResponse.json(
+          return secureJson(
             {
               error:
                 "Campaign image could not be removed from storage.",
             },
-            {
-              status: 500,
-            }
+            { status: 500, requestId }
           );
         }
       }
@@ -381,20 +444,18 @@ export async function POST(
           updateError
         );
 
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "Campaign image status could not be updated.",
           },
-          {
-            status: 500,
-          }
+          { status: 500, requestId }
         );
       }
 
       await writeAuditLog({
         adminUserId:
-          auth.user.id,
+          user.id,
 
         action:
           "campaign-image-removed",
@@ -410,18 +471,21 @@ export async function POST(
             campaign.title,
 
           admin_role:
-            auth.admin.role,
+            admin.role,
         },
       });
 
-      return NextResponse.json(
+      return secureJson(
         {
           success: true,
-
           action:
             "remove-image",
-
           campaignId,
+          request_id:
+            requestId,
+        },
+        {
+          requestId,
         }
       );
     }
@@ -476,18 +540,18 @@ export async function POST(
           supportsError
         );
 
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "Campaign support records could not be deleted.",
           },
-          {
-            status: 500,
-          }
+          { status: 500, requestId }
         );
       }
 
       const {
+        data:
+          deletedCampaigns,
         error:
           deleteError,
       } =
@@ -499,6 +563,9 @@ export async function POST(
           .eq(
             "id",
             campaignId
+          )
+          .select(
+            "id"
           );
 
       if (
@@ -509,20 +576,36 @@ export async function POST(
           deleteError
         );
 
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "Campaign could not be deleted.",
           },
+          { status: 500, requestId }
+        );
+      }
+
+      if (
+        !deletedCampaigns ||
+        deletedCampaigns.length !== 1
+      ) {
+        return secureJson(
+          {
+            error:
+              "Campaign deletion could not be confirmed.",
+            request_id:
+              requestId,
+          },
           {
             status: 500,
+            requestId,
           }
         );
       }
 
       await writeAuditLog({
         adminUserId:
-          auth.user.id,
+          user.id,
 
         action:
           "campaign-deleted",
@@ -538,30 +621,31 @@ export async function POST(
             campaign.title,
 
           admin_role:
-            auth.admin.role,
+            admin.role,
         },
       });
 
-      return NextResponse.json(
+      return secureJson(
         {
           success: true,
-
           action:
             "delete",
-
           campaignId,
+          request_id:
+            requestId,
+        },
+        {
+          requestId,
         }
       );
     }
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Unknown action.",
       },
-      {
-        status: 400,
-      }
+      { status: 400, requestId }
     );
   } catch (error) {
     console.error(
@@ -569,14 +653,12 @@ export async function POST(
       error
     );
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Unexpected server error.",
       },
-      {
-        status: 500,
-      }
+      { status: 500, requestId }
     );
   }
 }

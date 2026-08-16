@@ -1,9 +1,33 @@
 import {
   NextRequest,
-  NextResponse,
 } from "next/server";
 
-import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import {
+  supabaseAdmin,
+} from "../../../../lib/supabaseAdmin";
+
+import {
+  getClientIp,
+  parseJsonBody,
+  secureJson,
+} from "../../../../lib/security/requestSecurity";
+
+import {
+  secureApi,
+} from "../../../../lib/security/secureApi";
+
+import {
+  requireSecureUser,
+} from "../../../../lib/security/authSecurity";
+
+const MAX_BODY_BYTES =
+  10_000;
+
+const SUPPORT_RATE_LIMIT =
+  10;
+
+const SUPPORT_RATE_WINDOW_MS =
+  60_000;
 
 const ALLOWED_COUNTRIES = [
   "Türkiye",
@@ -23,12 +47,19 @@ type SiteSettings = {
   support_enabled?: boolean;
 };
 
+type SupportRequestBody = {
+  email?: unknown;
+  country?: unknown;
+  campaignSlug?: unknown;
+};
+
 function cleanString(
   value: unknown,
   maxLength: number
 ) {
   if (
-    typeof value !== "string"
+    typeof value !==
+    "string"
   ) {
     return "";
   }
@@ -60,6 +91,15 @@ function isValidEmail(
     return false;
   }
 
+  if (
+    email.includes(" ") ||
+    email.includes("\n") ||
+    email.includes("\r") ||
+    email.includes("\0")
+  ) {
+    return false;
+  }
+
   const atIndex =
     email.indexOf("@");
 
@@ -71,22 +111,40 @@ function isValidEmail(
     return false;
   }
 
+  const localPart =
+    email.slice(
+      0,
+      atIndex
+    );
+
   const domain =
     email.slice(
       atIndex + 1
     );
 
   if (
-    !domain ||
+    !localPart ||
+    !domain
+  ) {
+    return false;
+  }
+
+  if (
+    localPart.length > 64
+  ) {
+    return false;
+  }
+
+  if (
     !domain.includes(".")
   ) {
     return false;
   }
 
   if (
-    email.includes(" ") ||
-    email.includes("\n") ||
-    email.includes("\r")
+    domain.startsWith(".") ||
+    domain.endsWith(".") ||
+    domain.includes("..")
   ) {
     return false;
   }
@@ -100,8 +158,12 @@ async function getSiteSettings() {
     error,
   } =
     await supabaseAdmin
-      .from("site_settings")
-      .select("settings")
+      .from(
+        "site_settings"
+      )
+      .select(
+        "settings"
+      )
       .limit(1)
       .maybeSingle();
 
@@ -127,6 +189,7 @@ async function getSiteSettings() {
   ) {
     return {
       error: false,
+
       settings:
         {} as SiteSettings,
     };
@@ -134,166 +197,315 @@ async function getSiteSettings() {
 
   return {
     error: false,
+
     settings:
       rawSettings as SiteSettings,
   };
 }
 
-async function getOptionalUser(
+async function isIpBanned(
   request: NextRequest
 ) {
-  const authorization =
-    request.headers.get(
-      "authorization"
+  const ip =
+    getClientIp(
+      request
     );
 
   if (
-    !authorization ||
-    !authorization.startsWith(
-      "Bearer "
-    )
+    ip === "unknown"
   ) {
-    return null;
-  }
-
-  const accessToken =
-    authorization
-      .slice(7)
-      .trim();
-
-  if (!accessToken) {
-    return null;
+    return {
+      banned: false,
+      error: false,
+      ip,
+    };
   }
 
   const {
-    data: {
-      user,
-    },
+    data,
     error,
   } =
-    await supabaseAdmin.auth.getUser(
-      accessToken
+    await supabaseAdmin
+      .from(
+        "ip_bans"
+      )
+      .select(
+        "ip_address"
+      )
+      .eq(
+        "ip_address",
+        ip
+      )
+      .maybeSingle();
+
+  if (error) {
+    console.error(
+      "Guest support IP ban lookup error:",
+      error
     );
 
-  if (
-    error ||
-    !user
-  ) {
-    return null;
+    return {
+      banned: false,
+      error: true,
+      ip,
+    };
   }
 
-  return user;
+  return {
+    banned:
+      !!data,
+
+    error:
+      false,
+
+    ip,
+  };
 }
 
 export async function POST(
   request: NextRequest
 ) {
+  /*
+   * BASE SECURITY
+   *
+   * Campaign support remains available
+   * to guest users, therefore auth is
+   * not required here.
+   *
+   * Rate limiting falls back to IP.
+   */
+  const security =
+    await secureApi(
+      request,
+      {
+        scope:
+          "campaign-support-create",
+
+        requireAuth:
+          false,
+
+        requireSameOrigin:
+          true,
+
+        blockSuspiciousHeaders:
+          true,
+
+        rateLimit: {
+          limit:
+            SUPPORT_RATE_LIMIT,
+
+          windowMs:
+            SUPPORT_RATE_WINDOW_MS,
+        },
+      }
+    );
+
+  if (!security.ok) {
+    return security.response;
+  }
+
+  const {
+    requestId,
+  } = security;
+
   try {
     /*
-     * 1. Site Management ayarını
-     * server tarafında oku.
+     * IP BAN CHECK
+     *
+     * This also protects guest users,
+     * which requireSecureUser alone
+     * cannot do.
      */
-    const {
-      error:
-        settingsError,
-      settings,
-    } =
-      await getSiteSettings();
+    const ipCheck =
+      await isIpBanned(
+        request
+      );
 
-    /*
-     * Ayar okunamazsa fail-closed.
-     * Yani destek kabul etmiyoruz.
-     */
     if (
-      settingsError ||
-      !settings
+      ipCheck.error
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
-            "Support is temporarily unavailable.",
-          code:
-            "SUPPORT_SETTINGS_UNAVAILABLE",
+            "Security validation is temporarily unavailable.",
+
+          request_id:
+            requestId,
         },
         {
           status: 503,
+          requestId,
+        }
+      );
+    }
+
+    if (
+      ipCheck.banned
+    ) {
+      return secureJson(
+        {
+          error:
+            "Access from this network is restricted.",
+
+          request_id:
+            requestId,
+        },
+        {
+          status: 403,
+          requestId,
         }
       );
     }
 
     /*
-     * support_enabled sadece açık
-     * olduğunda kayıt kabul et.
+     * OPTIONAL AUTH
      *
-     * Eski ayarlarda alan hiç yoksa
-     * geriye uyumluluk için açık
-     * kabul ediyoruz.
+     * Guest users are allowed.
+     *
+     * However, if somebody sends an
+     * Authorization header, it must be
+     * a real valid session. Invalid or
+     * banned sessions are not silently
+     * downgraded to guest access.
      */
+    const authorization =
+      request.headers.get(
+        "authorization"
+      );
+
+    let userId:
+      | string
+      | null =
+      null;
+
+    if (authorization) {
+      if (
+        !authorization.startsWith(
+          "Bearer "
+        )
+      ) {
+        return secureJson(
+          {
+            error:
+              "Invalid authentication header.",
+
+            request_id:
+              requestId,
+          },
+          {
+            status: 401,
+            requestId,
+          }
+        );
+      }
+
+      const auth =
+        await requireSecureUser(
+          request
+        );
+
+      if (!auth.ok) {
+        return auth.response;
+      }
+
+      userId =
+        auth.user.id;
+    }
+
+    /*
+     * SITE SETTING
+     */
+    const {
+      error:
+        settingsError,
+
+      settings,
+    } =
+      await getSiteSettings();
+
+    if (
+      settingsError ||
+      !settings
+    ) {
+      return secureJson(
+        {
+          error:
+            "Support is temporarily unavailable.",
+
+          code:
+            "SUPPORT_SETTINGS_UNAVAILABLE",
+
+          request_id:
+            requestId,
+        },
+        {
+          status: 503,
+          requestId,
+        }
+      );
+    }
+
     const supportEnabled =
-      settings.support_enabled !==
+      settings
+        .support_enabled !==
       false;
 
     if (
       !supportEnabled
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Supporting campaigns is currently disabled.",
+
           code:
             "SUPPORT_DISABLED",
+
+          request_id:
+            requestId,
         },
         {
           status: 403,
+          requestId,
         }
       );
     }
 
     /*
-     * 2. JSON body
+     * SAFE JSON BODY
      */
-    let body: unknown;
-
-    try {
-      body =
-        await request.json();
-    } catch {
-      return NextResponse.json(
+    const parsed =
+      await parseJsonBody<SupportRequestBody>(
+        request,
         {
-          error:
-            "Invalid request.",
-        },
-        {
-          status: 400,
+          maxBytes:
+            MAX_BODY_BYTES,
         }
       );
-    }
 
-    if (
-      !body ||
-      typeof body !==
-        "object" ||
-      Array.isArray(body)
-    ) {
-      return NextResponse.json(
+    if (!parsed.ok) {
+      return secureJson(
         {
           error:
-            "Invalid request.",
+            parsed.error,
+
+          request_id:
+            requestId,
         },
         {
-          status: 400,
+          status:
+            parsed.status,
+
+          requestId,
         }
       );
     }
 
     const requestBody =
-      body as Record<
-        string,
-        unknown
-      >;
+      parsed.body;
 
     /*
-     * 3. Input temizliği
+     * NORMALIZE INPUT
      */
     const email =
       normalizeEmail(
@@ -313,26 +525,30 @@ export async function POST(
       );
 
     /*
-     * 4. Email kontrolü
+     * EMAIL
      */
     if (
       !isValidEmail(
         email
       )
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Please enter a valid email.",
+
+          request_id:
+            requestId,
         },
         {
           status: 400,
+          requestId,
         }
       );
     }
 
     /*
-     * 5. Country kontrolü
+     * COUNTRY
      */
     if (
       !ALLOWED_COUNTRIES.includes(
@@ -340,62 +556,72 @@ export async function POST(
           (typeof ALLOWED_COUNTRIES)[number]
       )
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Invalid country.",
+
+          request_id:
+            requestId,
         },
         {
           status: 400,
+          requestId,
         }
       );
     }
 
     /*
-     * 6. Campaign slug kontrolü
+     * CAMPAIGN SLUG
      */
     if (
       !campaignSlug ||
       campaignSlug.length >
         200
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Campaign could not be found.",
+
+          request_id:
+            requestId,
         },
         {
           status: 400,
+          requestId,
         }
       );
     }
 
-    /*
-     * Basit slug format kontrolü.
-     */
     if (
       !/^[a-z0-9-]+$/.test(
         campaignSlug
       )
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Invalid campaign.",
+
+          request_id:
+            requestId,
         },
         {
           status: 400,
+          requestId,
         }
       );
     }
 
     /*
-     * 7. Kampanya gerçekten
-     * mevcut ve aktif mi?
+     * CAMPAIGN MUST EXIST
+     * AND BE ACTIVE
      */
     const {
       data:
         campaign,
+
       error:
         campaignError,
     } =
@@ -405,9 +631,9 @@ export async function POST(
         )
         .select(
           `
-          id,
-          slug,
-          status
+            id,
+            slug,
+            status
           `
         )
         .eq(
@@ -428,50 +654,47 @@ export async function POST(
         campaignError
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Campaign could not be verified.",
+
+          request_id:
+            requestId,
         },
         {
           status: 500,
+          requestId,
         }
       );
     }
 
-    if (
-      !campaign
-    ) {
-      return NextResponse.json(
+    if (!campaign) {
+      return secureJson(
         {
           error:
             "Campaign could not be found or is not active.",
+
+          request_id:
+            requestId,
         },
         {
           status: 404,
+          requestId,
         }
       );
     }
 
     /*
-     * 8. Kullanıcı giriş yapmışsa
-     * server tarafında access token
-     * üzerinden user_id al.
+     * CREATE SUPPORT
      *
-     * Guest support hala mümkün.
-     */
-    const user =
-      await getOptionalUser(
-        request
-      );
-
-    /*
-     * 9. Support kaydını
-     * service role üzerinden oluştur.
+     * Service-role write remains
+     * server-side only.
      */
     const {
       data:
         support,
+
       error:
         insertError,
     } =
@@ -491,33 +714,25 @@ export async function POST(
             false,
 
           user_id:
-            user?.id ??
-            null,
+            userId,
         })
         .select(
           `
-          id,
-          campaign_slug,
-          verified
+            id,
+            campaign_slug,
+            verified
           `
         )
         .single();
 
     /*
-     * 23505:
-     * unique constraint nedeniyle
-     * bu email/kampanya desteği
-     * zaten oluşturulmuş.
-     *
-     * Bunu fatal hata saymıyoruz.
-     * Client yine verification mail
-     * akışına devam edebilir.
+     * UNIQUE DUPLICATE
      */
     if (
       insertError?.code ===
       "23505"
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           success: true,
 
@@ -526,9 +741,13 @@ export async function POST(
 
           message:
             "Support already exists. You can continue with email verification.",
+
+          request_id:
+            requestId,
         },
         {
           status: 200,
+          requestId,
         }
       );
     }
@@ -541,20 +760,25 @@ export async function POST(
         insertError
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Support could not be created. Please try again.",
+
+          request_id:
+            requestId,
         },
         {
           status: 500,
+          requestId,
         }
       );
     }
 
-    return NextResponse.json(
+    return secureJson(
       {
-        success: true,
+        success:
+          true,
 
         alreadyExists:
           false,
@@ -563,9 +787,13 @@ export async function POST(
 
         message:
           "Support request created.",
+
+        request_id:
+          requestId,
       },
       {
         status: 201,
+        requestId,
       }
     );
   } catch (error) {
@@ -574,13 +802,17 @@ export async function POST(
       error
     );
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Something went wrong. Please try again.",
+
+        request_id:
+          requestId,
       },
       {
         status: 500,
+        requestId,
       }
     );
   }
