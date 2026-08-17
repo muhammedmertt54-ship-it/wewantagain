@@ -44,7 +44,7 @@ export default function ContactPage() {
               <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                 <strong>Support email:</strong>
                 <div className="mt-1">
-                  TO BE COMPLETED
+                  General support contact is not yet published.
                 </div>
               </div>
             </section>
@@ -67,7 +67,7 @@ export default function ContactPage() {
               <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                 <strong>Payment support email:</strong>
                 <div className="mt-1">
-                  TO BE COMPLETED
+                  Paid Supporter services are currently disabled, so payment support is not active.
                 </div>
               </div>
             </section>
@@ -89,7 +89,7 @@ export default function ContactPage() {
               <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                 <strong>Privacy email:</strong>
                 <div className="mt-1">
-                  TO BE COMPLETED
+                  A dedicated privacy contact channel will be published before broader public launch.
                 </div>
               </div>
             </section>
@@ -132,8 +132,8 @@ export default function ContactPage() {
 
             <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
               <strong>
-                These fields must contain real information before
-                paid services are activated.
+                Verified operator and merchant information must be
+                published here before paid Supporter services are activated.
               </strong>
 
               <div className="mt-4 space-y-3">
@@ -141,35 +141,35 @@ export default function ContactPage() {
                   <span className="font-black">
                     Legal operator / merchant:
                   </span>{" "}
-                  TO BE COMPLETED
+                  Not yet published. Paid Supporter services remain disabled until verified operator information is available.
                 </div>
 
                 <div>
                   <span className="font-black">
                     Business / correspondence address:
                   </span>{" "}
-                  TO BE COMPLETED
+                  Not yet published.
                 </div>
 
                 <div>
                   <span className="font-black">
                     Contact email:
                   </span>{" "}
-                  TO BE COMPLETED
+                  Not yet published.
                 </div>
 
                 <div>
                   <span className="font-black">
                     Phone:
                   </span>{" "}
-                  TO BE COMPLETED IF REQUIRED
+                  Not currently published.
                 </div>
 
                 <div>
                   <span className="font-black">
                     Tax / registration information:
                   </span>{" "}
-                  TO BE COMPLETED IF APPLICABLE
+                  Not currently published.
                 </div>
               </div>
             </div>

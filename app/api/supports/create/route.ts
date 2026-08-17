@@ -7,7 +7,6 @@ import {
 } from "../../../../lib/supabaseAdmin";
 
 import {
-  getClientIp,
   parseJsonBody,
   secureJson,
 } from "../../../../lib/security/requestSecurity";
@@ -204,12 +203,8 @@ async function getSiteSettings() {
 }
 
 async function isIpBanned(
-  request: NextRequest
+  ip: string
 ) {
-  const ip =
-    getClientIp(
-      request
-    );
 
   if (
     ip === "unknown"
@@ -306,6 +301,7 @@ export async function POST(
 
   const {
     requestId,
+    clientIp,
   } = security;
 
   try {
@@ -318,7 +314,7 @@ export async function POST(
      */
     const ipCheck =
       await isIpBanned(
-        request
+        clientIp
       );
 
     if (

@@ -21,7 +21,7 @@ export default function PrivacyPage() {
           </h1>
 
           <p className="mt-3 text-sm text-slate-500">
-            Last updated: August 15, 2026
+            Last updated: August 18, 2026
           </p>
 
           <div className="mt-10 space-y-10 leading-7 text-slate-700">
@@ -60,24 +60,24 @@ export default function PrivacyPage() {
 
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
                 <strong>
-                  This information must be completed
-                  before paid services go live.
+                  Verified operator and privacy-contact details are not
+                  yet published. Paid Supporter services remain disabled.
                 </strong>
 
                 <div className="mt-3 space-y-1">
                   <p>
                     Data controller / legal operator:
-                    TO BE COMPLETED
+                    Not yet published.
                   </p>
 
                   <p>
                     Address:
-                    TO BE COMPLETED
+                    Not yet published.
                   </p>
 
                   <p>
                     Privacy contact email:
-                    TO BE COMPLETED
+                    Not yet published.
                   </p>
                 </div>
               </div>
@@ -605,23 +605,24 @@ export default function PrivacyPage() {
 
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
                 <strong>
-                  Complete before public paid launch:
+                  Privacy-contact details will be published before broader
+                  public launch and before paid Supporter services are enabled.
                 </strong>
 
                 <div className="mt-3 space-y-1">
                   <p>
                     Data controller:
-                    TO BE COMPLETED
+                    Not yet published.
                   </p>
 
                   <p>
                     Privacy request email:
-                    TO BE COMPLETED
+                    Not yet published.
                   </p>
 
                   <p>
                     Correspondence address:
-                    TO BE COMPLETED
+                    Not yet published.
                   </p>
                 </div>
               </div>

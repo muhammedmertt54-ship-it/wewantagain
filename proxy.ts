@@ -1,50 +1,196 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
+
+import {
+  createClient,
+} from "@supabase/supabase-js";
+
+import {
+  isIP,
+} from "node:net";
 
 const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  process.env
+    .NEXT_PUBLIC_SUPABASE_URL!;
 
 const serviceRoleKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  process.env
+    .SUPABASE_SERVICE_ROLE_KEY!;
 
-const supabaseAdmin = createClient(
-  supabaseUrl,
-  serviceRoleKey,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
+const supabaseAdmin =
+  createClient(
+    supabaseUrl,
+    serviceRoleKey,
+    {
+      auth: {
+        autoRefreshToken:
+          false,
+
+        persistSession:
+          false,
+
+        detectSessionInUrl:
+          false,
+      },
+    }
+  );
+
+function normalizeIp(
+  value: string | null
+) {
+  if (!value) {
+    return null;
   }
-);
 
-function getClientIp(request: NextRequest) {
-  const forwardedFor =
-    request.headers.get("x-forwarded-for");
-
-  if (forwardedFor) {
-    const firstIp = forwardedFor
+  let candidate =
+    value
       .split(",")[0]
       ?.trim();
 
-    if (firstIp) {
-      return firstIp;
+  if (!candidate) {
+    return null;
+  }
+
+  if (
+    candidate.startsWith(
+      "::ffff:"
+    )
+  ) {
+    candidate =
+      candidate.slice(7);
+  }
+
+  /*
+   * [IPv6]:port
+   */
+  if (
+    candidate.startsWith(
+      "["
+    )
+  ) {
+    const closing =
+      candidate.indexOf(
+        "]"
+      );
+
+    if (
+      closing >
+      1
+    ) {
+      candidate =
+        candidate.slice(
+          1,
+          closing
+        );
+    }
+  } else if (
+    candidate.includes(
+      "."
+    ) &&
+    candidate.includes(
+      ":"
+    )
+  ) {
+    /*
+     * IPv4:port
+     */
+    const lastColon =
+      candidate.lastIndexOf(
+        ":"
+      );
+
+    const possibleIp =
+      candidate.slice(
+        0,
+        lastColon
+      );
+
+    if (
+      isIP(
+        possibleIp
+      ) === 4
+    ) {
+      candidate =
+        possibleIp;
     }
   }
 
-  const realIp =
-    request.headers.get("x-real-ip");
+  return (
+    isIP(
+      candidate
+    ) > 0
+      ? candidate
+      : null
+  );
+}
 
-  if (realIp) {
-    return realIp.trim();
-  }
+function getClientIp(
+  request: NextRequest
+) {
+  /*
+   * On Vercel, x-forwarded-for is overwritten
+   * by the platform to prevent client spoofing.
+   *
+   * x-vercel-forwarded-for is preferred so the
+   * application also behaves correctly if another
+   * proxy is placed in front of Vercel later.
+   */
+  return (
+    normalizeIp(
+      request.headers.get(
+        "x-vercel-forwarded-for"
+      )
+    ) ??
+    normalizeIp(
+      request.headers.get(
+        "x-forwarded-for"
+      )
+    ) ??
+    normalizeIp(
+      request.headers.get(
+        "x-real-ip"
+      )
+    )
+  );
+}
 
-  return null;
+function applyBlockedSecurityHeaders(
+  response: NextResponse
+) {
+  response.headers.set(
+    "X-Content-Type-Options",
+    "nosniff"
+  );
+
+  response.headers.set(
+    "X-Frame-Options",
+    "DENY"
+  );
+
+  response.headers.set(
+    "Referrer-Policy",
+    "no-referrer"
+  );
+
+  response.headers.set(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), browsing-topics=()"
+  );
+
+  response.headers.set(
+    "Content-Security-Policy",
+    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+  );
+
+  return response;
 }
 
 function blockedResponse() {
-  return new NextResponse(
-    `
+  const response =
+    new NextResponse(
+      `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -180,17 +326,21 @@ function blockedResponse() {
 </body>
 </html>
 `,
-    {
-      status: 403,
+      {
+        status: 403,
 
-      headers: {
-        "Content-Type":
-          "text/html; charset=utf-8",
+        headers: {
+          "Content-Type":
+            "text/html; charset=utf-8",
 
-        "Cache-Control":
-          "no-store, no-cache, must-revalidate",
-      },
-    }
+          "Cache-Control":
+            "no-store, no-cache, must-revalidate",
+        },
+      }
+    );
+
+  return applyBlockedSecurityHeaders(
+    response
   );
 }
 
@@ -201,31 +351,34 @@ export async function proxy(
     request.nextUrl.pathname;
 
   /*
-   * Admin routes stay accessible.
+   * Admin pages stay reachable so an accidental
+   * IP ban cannot lock the administrator out of
+   * the interface needed to remove it.
    *
-   * This prevents an accidental IP ban
-   * from locking the administrator out
-   * of the panel needed to remove it.
-   *
-   * Admin API routes still require the
-   * admin authentication checks we
-   * already created.
+   * Admin API routes remain protected by the
+   * secureAdminApi checks implemented separately.
    */
   if (
     pathname === "/admin" ||
-    pathname.startsWith("/admin/") ||
-    pathname.startsWith("/api/admin/")
+    pathname.startsWith(
+      "/admin/"
+    ) ||
+    pathname.startsWith(
+      "/api/admin/"
+    )
   ) {
     return NextResponse.next();
   }
 
   const ipAddress =
-    getClientIp(request);
+    getClientIp(
+      request
+    );
 
   /*
-   * If an IP cannot be determined,
-   * fail open instead of taking the
-   * entire website offline.
+   * If Vercel cannot provide a valid client IP,
+   * fail open here so a header anomaly does not
+   * take the whole public site offline.
    */
   if (!ipAddress) {
     return NextResponse.next();
@@ -233,20 +386,28 @@ export async function proxy(
 
   try {
     const {
-      data: bannedIp,
+      data:
+        bannedIp,
+
       error,
-    } = await supabaseAdmin
-      .from("ip_bans")
-      .select("id")
-      .eq(
-        "ip_address",
-        ipAddress
-      )
-      .maybeSingle();
+    } =
+      await supabaseAdmin
+        .from(
+          "ip_bans"
+        )
+        .select(
+          "id"
+        )
+        .eq(
+          "ip_address",
+          ipAddress
+        )
+        .maybeSingle();
 
     /*
-     * If Supabase temporarily fails,
-     * keep the site available.
+     * Availability wins at the global proxy layer.
+     * Sensitive APIs perform their own fail-closed
+     * ban/security validation.
      */
     if (error) {
       console.error(
@@ -274,11 +435,6 @@ export async function proxy(
 
 export const config = {
   matcher: [
-    /*
-     * Check normal pages and APIs,
-     * but skip Next.js static assets
-     * and common public image files.
-     */
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

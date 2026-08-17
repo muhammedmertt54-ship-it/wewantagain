@@ -21,7 +21,7 @@ export default function RefundPolicyPage() {
           </h1>
 
           <p className="mt-3 text-sm text-slate-500">
-            Last updated: August 15, 2026
+            Last updated: August 18, 2026
           </p>
 
           <div className="mt-10 space-y-10 leading-7 text-slate-700">
@@ -317,29 +317,30 @@ export default function RefundPolicyPage() {
 
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
                 <strong>
-                  Complete this section before paid
-                  Supporter services are launched.
+                  Paid Supporter services are currently disabled.
+                  Verified merchant and refund-contact details will be
+                  published here before they are enabled.
                 </strong>
 
                 <div className="mt-3 space-y-1">
                   <p>
                     Legal operator / merchant:
-                    TO BE COMPLETED
+                    Not yet published.
                   </p>
 
                   <p>
                     Refund contact email:
-                    TO BE COMPLETED
+                    Not yet published.
                   </p>
 
                   <p>
                     Correspondence address:
-                    TO BE COMPLETED
+                    Not yet published.
                   </p>
 
                   <p>
                     Additional merchant information:
-                    TO BE COMPLETED IF APPLICABLE
+                    Not currently published.
                   </p>
                 </div>
               </div>

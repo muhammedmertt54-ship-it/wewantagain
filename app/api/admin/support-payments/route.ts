@@ -1,35 +1,86 @@
 import {
   NextRequest,
-  NextResponse,
 } from "next/server";
-
-import {
-  requireAdminRole,
-} from "../../../../lib/admin/requireAdminRole";
 
 import {
   supabaseAdmin,
 } from "../../../../lib/supabaseAdmin";
 
+import {
+  secureAdminApi,
+} from "../../../../lib/security/secureAdminApi";
+
+import {
+  secureJson,
+} from "../../../../lib/security/requestSecurity";
+
+const SUPPORT_PAYMENTS_READ_RATE_LIMIT =
+  60;
+
+const SUPPORT_PAYMENTS_RATE_WINDOW_MS =
+  60_000;
+
+const ALLOWED_STATUSES = [
+  "pending",
+  "paid",
+  "failed",
+  "cancelled",
+  "refunded",
+] as const;
+
+type PaymentStatus =
+  (typeof ALLOWED_STATUSES)[number];
+
+function isPaymentStatus(
+  value: string
+): value is PaymentStatus {
+  return (
+    ALLOWED_STATUSES as readonly string[]
+  ).includes(value);
+}
+
 export async function GET(
   request: NextRequest
 ) {
-  const auth =
-    await requireAdminRole(
+  const security =
+    await secureAdminApi(
       request,
-      [
-        "owner",
-        "admin",
-      ]
+      {
+        scope:
+          "admin-support-payments-read",
+
+        allowedRoles: [
+          "owner",
+          "admin",
+        ],
+
+        blockSuspiciousHeaders:
+          true,
+
+        rateLimit: {
+          limit:
+            SUPPORT_PAYMENTS_READ_RATE_LIMIT,
+
+          windowMs:
+            SUPPORT_PAYMENTS_RATE_WINDOW_MS,
+        },
+      }
     );
 
-  if (!auth.ok) {
-    return auth.response;
+  if (!security.ok) {
+    return security.response;
   }
+
+  const {
+    requestId,
+    admin,
+  } = security;
 
   try {
     const url =
-      new URL(request.url);
+      new URL(
+        request.url
+      );
 
     const status =
       url.searchParams.get(
@@ -93,17 +144,15 @@ export async function GET(
               false,
           }
         )
-        .limit(limit);
+        .limit(
+          limit
+        );
 
     if (
       status &&
-      [
-        "pending",
-        "paid",
-        "failed",
-        "cancelled",
-        "refunded",
-      ].includes(status)
+      isPaymentStatus(
+        status
+      )
     ) {
       query =
         query.eq(
@@ -124,13 +173,17 @@ export async function GET(
         error
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Support payments could not be loaded.",
+
+          request_id:
+            requestId,
         },
         {
           status: 500,
+          requestId,
         }
       );
     }
@@ -199,16 +252,22 @@ export async function GET(
         })
       );
 
-    return NextResponse.json(
+    return secureJson(
       {
         payments,
+
         count:
           payments.length,
+
         current_admin_role:
-          auth.admin.role,
+          admin.role,
+
+        request_id:
+          requestId,
       },
       {
         status: 200,
+        requestId,
       }
     );
   } catch (error) {
@@ -217,13 +276,17 @@ export async function GET(
       error
     );
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Support payments could not be loaded.",
+
+        request_id:
+          requestId,
       },
       {
         status: 500,
+        requestId,
       }
     );
   }

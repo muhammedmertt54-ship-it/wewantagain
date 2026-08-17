@@ -1,15 +1,41 @@
 import {
   NextRequest,
-  NextResponse,
 } from "next/server";
 
-import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
-import { requireAdminRole } from "../../../../lib/admin/requireAdminRole";
+import {
+  supabaseAdmin,
+} from "../../../../lib/supabaseAdmin";
+
+import {
+  secureAdminApi,
+} from "../../../../lib/security/secureAdminApi";
+
+import {
+  parseJsonBody,
+  secureJson,
+} from "../../../../lib/security/requestSecurity";
 
 type CopyrightStatus =
   | "reviewing"
   | "resolved"
   | "rejected";
+
+type CopyrightPatchBody = {
+  id?: unknown;
+  status?: unknown;
+};
+
+const MAX_BODY_BYTES =
+  8_000;
+
+const COPYRIGHT_READ_RATE_LIMIT =
+  60;
+
+const COPYRIGHT_WRITE_RATE_LIMIT =
+  20;
+
+const COPYRIGHT_RATE_WINDOW_MS =
+  60_000;
 
 function isCopyrightStatus(
   value: unknown
@@ -44,13 +70,18 @@ async function writeAuditLog({
 }: {
   adminUserId: string;
   action: string;
-  details?: Record<string, unknown>;
+  details?: Record<
+    string,
+    unknown
+  >;
 }) {
   const {
     error,
   } =
     await supabaseAdmin
-      .from("admin_audit_logs")
+      .from(
+        "admin_audit_logs"
+      )
       .insert({
         admin_user_id:
           adminUserId,
@@ -75,20 +106,41 @@ async function writeAuditLog({
 export async function GET(
   request: NextRequest
 ) {
-  try {
-    const auth =
-      await requireAdminRole(
-        request,
-        [
+  const security =
+    await secureAdminApi(
+      request,
+      {
+        scope:
+          "admin-copyright-read",
+
+        allowedRoles: [
           "owner",
           "admin",
-        ]
-      );
+        ],
 
-    if (!auth.ok) {
-      return auth.response;
-    }
+        blockSuspiciousHeaders:
+          true,
 
+        rateLimit: {
+          limit:
+            COPYRIGHT_READ_RATE_LIMIT,
+
+          windowMs:
+            COPYRIGHT_RATE_WINDOW_MS,
+        },
+      }
+    );
+
+  if (!security.ok) {
+    return security.response;
+  }
+
+  const {
+    requestId,
+    admin,
+  } = security;
+
+  try {
     const {
       data,
       error,
@@ -114,24 +166,34 @@ export async function GET(
         error
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Copyright reports could not be loaded.",
+
+          request_id:
+            requestId,
         },
         {
           status: 500,
+          requestId,
         }
       );
     }
 
-    return NextResponse.json(
+    return secureJson(
       {
         reports:
           data ?? [],
 
         current_admin_role:
-          auth.admin.role,
+          admin.role,
+
+        request_id:
+          requestId,
+      },
+      {
+        requestId,
       }
     );
   } catch (error) {
@@ -140,13 +202,17 @@ export async function GET(
       error
     );
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Unexpected server error.",
+
+        request_id:
+          requestId,
       },
       {
         status: 500,
+        requestId,
       }
     );
   }
@@ -155,22 +221,74 @@ export async function GET(
 export async function PATCH(
   request: NextRequest
 ) {
-  try {
-    const auth =
-      await requireAdminRole(
-        request,
-        [
+  const security =
+    await secureAdminApi(
+      request,
+      {
+        scope:
+          "admin-copyright-write",
+
+        allowedRoles: [
           "owner",
           "admin",
-        ]
+        ],
+
+        requireSameOrigin:
+          true,
+
+        blockSuspiciousHeaders:
+          true,
+
+        rateLimit: {
+          limit:
+            COPYRIGHT_WRITE_RATE_LIMIT,
+
+          windowMs:
+            COPYRIGHT_RATE_WINDOW_MS,
+        },
+      }
+    );
+
+  if (!security.ok) {
+    return security.response;
+  }
+
+  const {
+    requestId,
+    user,
+    admin,
+  } = security;
+
+  try {
+    const parsed =
+      await parseJsonBody<CopyrightPatchBody>(
+        request,
+        {
+          maxBytes:
+            MAX_BODY_BYTES,
+        }
       );
 
-    if (!auth.ok) {
-      return auth.response;
+    if (!parsed.ok) {
+      return secureJson(
+        {
+          error:
+            parsed.error,
+
+          request_id:
+            requestId,
+        },
+        {
+          status:
+            parsed.status,
+
+          requestId,
+        }
+      );
     }
 
     const body =
-      await request.json();
+      parsed.body;
 
     const id =
       parseId(
@@ -181,13 +299,17 @@ export async function PATCH(
       body?.status;
 
     if (!id) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Invalid report ID.",
+
+          request_id:
+            requestId,
         },
         {
           status: 400,
+          requestId,
         }
       );
     }
@@ -197,19 +319,25 @@ export async function PATCH(
         status
       )
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Invalid copyright report status.",
+
+          request_id:
+            requestId,
         },
         {
           status: 400,
+          requestId,
         }
       );
     }
 
     const {
-      data: existing,
+      data:
+        existing,
+
       error:
         existingError,
     } =
@@ -232,25 +360,33 @@ export async function PATCH(
         existingError
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Copyright report could not be checked.",
+
+          request_id:
+            requestId,
         },
         {
           status: 500,
+          requestId,
         }
       );
     }
 
     if (!existing) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Copyright report not found.",
+
+          request_id:
+            requestId,
         },
         {
           status: 404,
+          requestId,
         }
       );
     }
@@ -284,20 +420,24 @@ export async function PATCH(
         error
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Report status could not be updated.",
+
+          request_id:
+            requestId,
         },
         {
           status: 500,
+          requestId,
         }
       );
     }
 
     await writeAuditLog({
       adminUserId:
-        auth.user.id,
+        user.id,
 
       action:
         "copyright-report-status-updated",
@@ -319,16 +459,22 @@ export async function PATCH(
           status,
 
         admin_role:
-          auth.admin.role,
+          admin.role,
       },
     });
 
-    return NextResponse.json(
+    return secureJson(
       {
         success: true,
 
         report:
           data,
+
+        request_id:
+          requestId,
+      },
+      {
+        requestId,
       }
     );
   } catch (error) {
@@ -337,13 +483,17 @@ export async function PATCH(
       error
     );
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Unexpected server error.",
+
+        request_id:
+          requestId,
       },
       {
         status: 500,
+        requestId,
       }
     );
   }

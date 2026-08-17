@@ -1,6 +1,28 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
-import { requireAdminRole } from "../../../../lib/admin/requireAdminRole";
+import {
+  secureAdminApi,
+} from "../../../../lib/security/secureAdminApi";
+import {
+  parseJsonBody,
+  secureJson,
+} from "../../../../lib/security/requestSecurity";
+
+const MAX_BODY_BYTES =
+  24_000;
+
+const SITE_SETTINGS_READ_RATE_LIMIT =
+  60;
+
+const SITE_SETTINGS_WRITE_RATE_LIMIT =
+  20;
+
+const SITE_SETTINGS_RATE_WINDOW_MS =
+  60_000;
+
+type SiteSettingsBody = {
+  settings?: unknown;
+};
 
 async function writeAuditLog({
   adminUserId,
@@ -58,16 +80,40 @@ function cleanDateTime(
 export async function GET(
   request: NextRequest
 ) {
-  try {
-    const auth =
-      await requireAdminRole(request, [
-        "owner",
-        "admin",
-      ]);
+  const security =
+    await secureAdminApi(
+      request,
+      {
+        scope:
+          "admin-site-settings-read",
 
-    if (!auth.ok) {
-      return auth.response;
-    }
+        allowedRoles: [
+          "owner",
+          "admin",
+        ],
+
+        blockSuspiciousHeaders:
+          true,
+
+        rateLimit: {
+          limit:
+            SITE_SETTINGS_READ_RATE_LIMIT,
+
+          windowMs:
+            SITE_SETTINGS_RATE_WINDOW_MS,
+        },
+      }
+    );
+
+  if (!security.ok) {
+    return security.response;
+  }
+
+  const {
+    requestId,
+  } = security;
+
+  try {
 
     const {
       data,
@@ -86,43 +132,45 @@ export async function GET(
         error
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Site settings could not be loaded.",
-          details:
-            error.message,
         },
-        {
-          status: 500,
-        }
+        { status: 500, requestId }
       );
     }
 
-    return NextResponse.json({
-      settings:
-        data?.settings ?? {},
+    return secureJson(
+      {
+        settings:
+          data?.settings ?? {},
 
-      updated_at:
-        data?.updated_at ?? null,
+        updated_at:
+          data?.updated_at ?? null,
 
-      updated_by:
-        data?.updated_by ?? null,
-    });
+        updated_by:
+          data?.updated_by ?? null,
+
+        request_id:
+          requestId,
+      },
+      {
+        requestId,
+      }
+    );
   } catch (error) {
     console.error(
       "Site settings GET error:",
       error
     );
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Unexpected server error.",
       },
-      {
-        status: 500,
-      }
+      { status: 500, requestId }
     );
   }
 }
@@ -130,19 +178,73 @@ export async function GET(
 export async function POST(
   request: NextRequest
 ) {
-  try {
-    const auth =
-      await requireAdminRole(request, [
-        "owner",
-        "admin",
-      ]);
+  const security =
+    await secureAdminApi(
+      request,
+      {
+        scope:
+          "admin-site-settings-write",
 
-    if (!auth.ok) {
-      return auth.response;
+        allowedRoles: [
+          "owner",
+          "admin",
+        ],
+
+        requireSameOrigin:
+          true,
+
+        blockSuspiciousHeaders:
+          true,
+
+        rateLimit: {
+          limit:
+            SITE_SETTINGS_WRITE_RATE_LIMIT,
+
+          windowMs:
+            SITE_SETTINGS_RATE_WINDOW_MS,
+        },
+      }
+    );
+
+  if (!security.ok) {
+    return security.response;
+  }
+
+  const {
+    requestId,
+    user,
+  } = security;
+
+  try {
+    const parsed =
+      await parseJsonBody<SiteSettingsBody>(
+        request,
+        {
+          maxBytes:
+            MAX_BODY_BYTES,
+        }
+      );
+
+    if (!parsed.ok) {
+      return secureJson(
+        {
+          error:
+            parsed.error,
+
+          request_id:
+            requestId,
+        },
+        {
+          status:
+            parsed.status,
+
+          requestId,
+        }
+      );
     }
 
     const body =
-      await request.json();
+      parsed.body;
 
     const settings =
       body?.settings;
@@ -152,130 +254,139 @@ export async function POST(
       typeof settings !== "object" ||
       Array.isArray(settings)
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Invalid site settings.",
+          request_id:
+            requestId,
         },
         {
           status: 400,
+          requestId,
         }
       );
     }
 
+    const settingsRecord =
+      settings as Record<
+        string,
+        unknown
+      >;
+
     const cleanedSettings = {
       hero_badge:
-        typeof settings.hero_badge ===
+        typeof settingsRecord.hero_badge ===
         "string"
-          ? settings.hero_badge
+          ? settingsRecord.hero_badge
               .trim()
               .slice(0, 200)
           : "",
 
       hero_title:
-        typeof settings.hero_title ===
+        typeof settingsRecord.hero_title ===
         "string"
-          ? settings.hero_title
+          ? settingsRecord.hero_title
               .trim()
               .slice(0, 180)
           : "",
 
       hero_description:
-        typeof settings.hero_description ===
+        typeof settingsRecord.hero_description ===
         "string"
-          ? settings.hero_description
+          ? settingsRecord.hero_description
               .trim()
               .slice(0, 500)
           : "",
 
       hero_primary_button:
-        typeof settings.hero_primary_button ===
+        typeof settingsRecord.hero_primary_button ===
         "string"
-          ? settings.hero_primary_button
+          ? settingsRecord.hero_primary_button
               .trim()
               .slice(0, 100)
           : "",
 
       hero_secondary_button:
-        typeof settings.hero_secondary_button ===
+        typeof settingsRecord.hero_secondary_button ===
         "string"
-          ? settings.hero_secondary_button
+          ? settingsRecord.hero_secondary_button
               .trim()
               .slice(0, 100)
           : "",
 
       trending_title:
-        typeof settings.trending_title ===
+        typeof settingsRecord.trending_title ===
         "string"
-          ? settings.trending_title
+          ? settingsRecord.trending_title
               .trim()
               .slice(0, 150)
           : "",
 
       most_wanted_title:
-        typeof settings.most_wanted_title ===
+        typeof settingsRecord.most_wanted_title ===
         "string"
-          ? settings.most_wanted_title
+          ? settingsRecord.most_wanted_title
               .trim()
               .slice(0, 150)
           : "",
 
       categories_title:
-        typeof settings.categories_title ===
+        typeof settingsRecord.categories_title ===
         "string"
-          ? settings.categories_title
+          ? settingsRecord.categories_title
               .trim()
               .slice(0, 150)
           : "",
 
       footer_text:
-        typeof settings.footer_text ===
+        typeof settingsRecord.footer_text ===
         "string"
-          ? settings.footer_text
+          ? settingsRecord.footer_text
               .trim()
               .slice(0, 250)
           : "",
 
       submissions_enabled:
-        settings.submissions_enabled !==
+        settingsRecord.submissions_enabled !==
         false,
 
       support_enabled:
-        settings.support_enabled !==
+        settingsRecord.support_enabled !==
         false,
 
       maintenance_mode:
-        settings.maintenance_mode ===
+        settingsRecord.maintenance_mode ===
         true,
 
       maintenance_schedule_enabled:
-        settings.maintenance_schedule_enabled ===
+        settingsRecord.maintenance_schedule_enabled ===
         true,
 
       maintenance_reason:
-        typeof settings.maintenance_reason ===
+        typeof settingsRecord.maintenance_reason ===
         "string"
-          ? settings.maintenance_reason
+          ? settingsRecord.maintenance_reason
               .trim()
               .slice(0, 200)
           : "",
 
       maintenance_message:
-        typeof settings.maintenance_message ===
+        typeof settingsRecord.maintenance_message ===
         "string"
-          ? settings.maintenance_message
+          ? settingsRecord.maintenance_message
               .trim()
               .slice(0, 600)
           : "",
 
       maintenance_starts_at:
         cleanDateTime(
-          settings.maintenance_starts_at
+          settingsRecord.maintenance_starts_at
         ),
 
       maintenance_ends_at:
         cleanDateTime(
-          settings.maintenance_ends_at
+          settingsRecord.maintenance_ends_at
         ),
     };
 
@@ -283,14 +394,12 @@ export async function POST(
       cleanedSettings.maintenance_mode &&
       !cleanedSettings.maintenance_reason
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Maintenance reason is required while manual maintenance is enabled.",
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
@@ -298,14 +407,12 @@ export async function POST(
       cleanedSettings.maintenance_schedule_enabled &&
       !cleanedSettings.maintenance_starts_at
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Scheduled maintenance requires a start time.",
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
@@ -329,14 +436,12 @@ export async function POST(
         Number.isFinite(endTime) &&
         endTime <= startTime
       ) {
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "Maintenance end time must be after the start time.",
           },
-          {
-            status: 400,
-          }
+          { status: 400, requestId }
         );
       }
     }
@@ -361,16 +466,12 @@ export async function POST(
         existingError
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Site settings could not be checked.",
-          details:
-            existingError.message,
         },
-        {
-          status: 500,
-        }
+        { status: 500, requestId }
       );
     }
 
@@ -385,7 +486,7 @@ export async function POST(
               cleanedSettings,
 
             updated_by:
-              auth.user.id,
+              user.id,
 
             updated_at:
               now,
@@ -405,7 +506,7 @@ export async function POST(
               cleanedSettings,
 
             updated_by:
-              auth.user.id,
+              user.id,
 
             updated_at:
               now,
@@ -420,16 +521,12 @@ export async function POST(
         saveError
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Site settings could not be saved.",
-          details:
-            saveError.message,
         },
-        {
-          status: 500,
-        }
+        { status: 500, requestId }
       );
     }
 
@@ -482,7 +579,7 @@ export async function POST(
 
     await writeAuditLog({
       adminUserId:
-        auth.user.id,
+        user.id,
 
       action:
         auditAction,
@@ -518,26 +615,32 @@ export async function POST(
       },
     });
 
-    return NextResponse.json({
-      success: true,
+    return secureJson(
+      {
+        success: true,
 
-      settings:
-        cleanedSettings,
-    });
+        settings:
+          cleanedSettings,
+
+        request_id:
+          requestId,
+      },
+      {
+        requestId,
+      }
+    );
   } catch (error) {
     console.error(
       "Site settings POST error:",
       error
     );
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Unexpected server error.",
       },
-      {
-        status: 500,
-      }
+      { status: 500, requestId }
     );
   }
 }

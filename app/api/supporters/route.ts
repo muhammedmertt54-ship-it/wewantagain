@@ -1,22 +1,79 @@
 import {
   NextRequest,
-  NextResponse,
 } from "next/server";
 
-import { supabaseAdmin } from "../../../lib/supabaseAdmin";
+import {
+  supabaseAdmin,
+} from "../../../lib/supabaseAdmin";
+
+import {
+  secureApi,
+} from "../../../lib/security/secureApi";
+
+import {
+  secureJson,
+} from "../../../lib/security/requestSecurity";
+
+const SUPPORTERS_READ_RATE_LIMIT =
+  120;
+
+const SUPPORTERS_RATE_WINDOW_MS =
+  60_000;
+
+const DEFAULT_LIMIT =
+  50;
+
+const MAX_LIMIT =
+  100;
 
 export async function GET(
   request: NextRequest
 ) {
+  const security =
+    await secureApi(
+      request,
+      {
+        scope:
+          "public-supporters-read",
+
+        requireAuth:
+          false,
+
+        blockSuspiciousHeaders:
+          true,
+
+        rateLimit: {
+          limit:
+            SUPPORTERS_READ_RATE_LIMIT,
+
+          windowMs:
+            SUPPORTERS_RATE_WINDOW_MS,
+        },
+      }
+    );
+
+  if (!security.ok) {
+    return security.response;
+  }
+
+  const {
+    requestId,
+  } = security;
+
   try {
     const url =
-      new URL(request.url);
+      new URL(
+        request.url
+      );
 
     const rawLimit =
       Number(
         url.searchParams.get(
           "limit"
-        ) ?? "50"
+        ) ??
+          String(
+            DEFAULT_LIMIT
+          )
       );
 
     const limit =
@@ -28,10 +85,10 @@ export async function GET(
             ? Math.floor(
                 rawLimit
               )
-            : 50,
+            : DEFAULT_LIMIT,
           1
         ),
-        100
+        MAX_LIMIT
       );
 
     const {
@@ -70,11 +127,14 @@ export async function GET(
           {
             ascending:
               false,
+
             nullsFirst:
               false,
           }
         )
-        .limit(limit);
+        .limit(
+          limit
+        );
 
     if (error) {
       console.error(
@@ -82,50 +142,84 @@ export async function GET(
         error
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Supporters could not be loaded.",
+
+          request_id:
+            requestId,
         },
         {
           status: 500,
+          requestId,
         }
       );
     }
 
     const supporters =
-      (data ?? []).map(
-        (item) => ({
-          id:
-            item.id,
+      (data ?? [])
+        .map(
+          (item) => ({
+            id:
+              item.id,
 
-          name:
-            item.supporter_name,
+            name:
+              typeof item.supporter_name ===
+                "string"
+                ? item.supporter_name
+                    .trim()
+                    .slice(
+                      0,
+                      100
+                    )
+                : null,
 
-          level:
-            item.supporter_level,
+            level:
+              item.supporter_level,
 
-          amount:
-            Number(
-              item.amount
-            ),
+            amount:
+              Number(
+                item.amount
+              ),
 
-          currency:
-            item.currency,
+            currency:
+              item.currency,
 
-          paid_at:
-            item.paid_at,
-        })
-      );
+            paid_at:
+              item.paid_at,
+          })
+        )
+        .filter(
+          (
+            item
+          ): item is {
+            id: typeof item.id;
+            name: string;
+            level: typeof item.level;
+            amount: number;
+            currency: typeof item.currency;
+            paid_at: typeof item.paid_at;
+          } =>
+            typeof item.name ===
+              "string" &&
+            item.name.length >
+              0
+        );
 
-    return NextResponse.json(
+    return secureJson(
       {
         supporters,
+
         count:
           supporters.length,
+
+        request_id:
+          requestId,
       },
       {
         status: 200,
+        requestId,
       }
     );
   } catch (error) {
@@ -134,13 +228,17 @@ export async function GET(
       error
     );
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Supporters could not be loaded.",
+
+        request_id:
+          requestId,
       },
       {
         status: 500,
+        requestId,
       }
     );
   }

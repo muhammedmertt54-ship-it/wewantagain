@@ -1,29 +1,119 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import {
-  requireAdminRole,
-  type AdminRole,
+  NextRequest,
+} from "next/server";
+
+import {
+  supabaseAdmin,
+} from "../../../../lib/supabaseAdmin";
+
+import type {
+  AdminRole,
 } from "../../../../lib/admin/requireAdminRole";
 
-export async function GET(request: NextRequest) {
+import {
+  secureAdminApi,
+} from "../../../../lib/security/secureAdminApi";
+
+import {
+  secureJson,
+} from "../../../../lib/security/requestSecurity";
+
+const ADMIN_USERS_READ_RATE_LIMIT =
+  60;
+
+const ADMIN_USERS_RATE_WINDOW_MS =
+  60_000;
+
+const AUTH_USERS_PER_PAGE =
+  1000;
+
+type ProfileRow = {
+  user_id: string;
+  username: string | null;
+  display_name: string | null;
+};
+
+type AdminRow = {
+  user_id: string;
+  role: AdminRole;
+};
+
+type UserIpRow = {
+  id: number;
+  user_id: string;
+  ip_address: string;
+  first_seen_at: string;
+  last_seen_at: string;
+};
+
+function isAdminRole(
+  value: unknown
+): value is AdminRole {
+  return (
+    value === "owner" ||
+    value === "admin" ||
+    value === "moderator"
+  );
+}
+
+export async function GET(
+  request: NextRequest
+) {
+  const security =
+    await secureAdminApi(
+      request,
+      {
+        scope:
+          "admin-users-read",
+
+        allowedRoles: [
+          "owner",
+          "admin",
+          "moderator",
+        ],
+
+        blockSuspiciousHeaders:
+          true,
+
+        rateLimit: {
+          limit:
+            ADMIN_USERS_READ_RATE_LIMIT,
+
+          windowMs:
+            ADMIN_USERS_RATE_WINDOW_MS,
+        },
+      }
+    );
+
+  if (!security.ok) {
+    return security.response;
+  }
+
+  const {
+    requestId,
+    user:
+      currentUser,
+    admin:
+      currentAdmin,
+  } = security;
+
   try {
-    const auth = await requireAdminRole(request, [
-      "owner",
-      "admin",
-      "moderator",
-    ]);
-
-    if (!auth.ok) {
-      return auth.response;
-    }
-
     const {
-      data: authData,
-      error: authUsersError,
-    } = await supabaseAdmin.auth.admin.listUsers({
-      page: 1,
-      perPage: 1000,
-    });
+      data:
+        authData,
+
+      error:
+        authUsersError,
+    } =
+      await supabaseAdmin
+        .auth
+        .admin
+        .listUsers({
+          page: 1,
+
+          perPage:
+            AUTH_USERS_PER_PAGE,
+        });
 
     if (authUsersError) {
       console.error(
@@ -31,19 +121,24 @@ export async function GET(request: NextRequest) {
         authUsersError
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Users could not be loaded.",
+
+          request_id:
+            requestId,
         },
         {
           status: 500,
+          requestId,
         }
       );
     }
 
     const authUsers =
-      authData.users ?? [];
+      authData.users ??
+      [];
 
     const userIds =
       authUsers.map(
@@ -51,31 +146,26 @@ export async function GET(request: NextRequest) {
           user.id
       );
 
-    let profiles: {
-      user_id: string;
-      username: string | null;
-      display_name: string | null;
-    }[] = [];
+    let profiles:
+      ProfileRow[] =
+      [];
 
-    let admins: {
-      user_id: string;
-      role: AdminRole;
-    }[] = [];
+    let admins:
+      AdminRow[] =
+      [];
 
-    let userIps: {
-      id: number;
-      user_id: string;
-      ip_address: string;
-      first_seen_at: string;
-      last_seen_at: string;
-    }[] = [];
+    let userIps:
+      UserIpRow[] =
+      [];
 
     if (
-      userIds.length > 0
+      userIds.length >
+      0
     ) {
       const {
         data:
           profileRows,
+
         error:
           profileError,
       } =
@@ -100,13 +190,16 @@ export async function GET(request: NextRequest) {
         );
       } else {
         profiles =
-          profileRows ??
-          [];
+          (
+            profileRows ??
+            []
+          ) as ProfileRow[];
       }
 
       const {
         data:
           adminRows,
+
         error:
           adminsError,
       } =
@@ -134,25 +227,26 @@ export async function GET(request: NextRequest) {
           (
             adminRows ??
             []
-          ).filter(
-            (
-              row
-            ): row is {
-              user_id: string;
-              role: AdminRole;
-            } =>
-              row.role ===
-                "owner" ||
-              row.role ===
-                "admin" ||
-              row.role ===
-                "moderator"
-          );
+          )
+            .filter(
+              (
+                row
+              ): row is {
+                user_id: string;
+                role: AdminRole;
+              } =>
+                typeof row.user_id ===
+                  "string" &&
+                isAdminRole(
+                  row.role
+                )
+            );
       }
 
       const {
         data:
           ipRows,
+
         error:
           ipsError,
       } =
@@ -184,14 +278,17 @@ export async function GET(request: NextRequest) {
         );
       } else {
         userIps =
-          ipRows ??
-          [];
+          (
+            ipRows ??
+            []
+          ) as UserIpRow[];
       }
     }
 
     const {
       data:
         bannedIpRows,
+
       error:
         bannedIpsError,
     } =
@@ -231,7 +328,10 @@ export async function GET(request: NextRequest) {
         );
 
     const profileMap =
-      new Map(
+      new Map<
+        string,
+        ProfileRow
+      >(
         profiles.map(
           (
             profile
@@ -279,10 +379,13 @@ export async function GET(request: NextRequest) {
       existing.push({
         id:
           ip.id,
+
         ip_address:
           ip.ip_address,
+
         first_seen_at:
           ip.first_seen_at,
+
         last_seen_at:
           ip.last_seen_at,
       });
@@ -316,11 +419,13 @@ export async function GET(request: NextRequest) {
               null,
 
             username:
-              profile?.username ??
+              profile
+                ?.username ??
               null,
 
             display_name:
-              profile?.display_name ??
+              profile
+                ?.display_name ??
               null,
 
             is_admin:
@@ -348,12 +453,13 @@ export async function GET(request: NextRequest) {
             ips:
               ipMap.get(
                 user.id
-              ) ?? [],
+              ) ??
+              [],
           };
         }
       );
 
-    return NextResponse.json(
+    return secureJson(
       {
         users,
 
@@ -361,10 +467,16 @@ export async function GET(request: NextRequest) {
           bannedIps,
 
         current_admin_role:
-          auth.admin.role,
+          currentAdmin.role,
 
         current_admin_user_id:
-          auth.user.id,
+          currentUser.id,
+
+        request_id:
+          requestId,
+      },
+      {
+        requestId,
       }
     );
   } catch (error) {
@@ -373,13 +485,17 @@ export async function GET(request: NextRequest) {
       error
     );
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Unexpected server error.",
+
+        request_id:
+          requestId,
       },
       {
         status: 500,
+        requestId,
       }
     );
   }

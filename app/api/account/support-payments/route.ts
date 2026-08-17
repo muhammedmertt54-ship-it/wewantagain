@@ -1,77 +1,86 @@
 import {
   NextRequest,
-  NextResponse,
 } from "next/server";
 
 import {
   supabaseAdmin,
 } from "../../../../lib/supabaseAdmin";
 
+import {
+  secureApi,
+} from "../../../../lib/security/secureApi";
+
+import {
+  secureJson,
+} from "../../../../lib/security/requestSecurity";
+
+const ACCOUNT_SUPPORT_PAYMENTS_RATE_LIMIT =
+  60;
+
+const ACCOUNT_SUPPORT_PAYMENTS_RATE_WINDOW_MS =
+  60_000;
+
+const ACCOUNT_SUPPORT_PAYMENTS_LIMIT =
+  100;
+
 export async function GET(
   request: NextRequest
 ) {
+  const security =
+    await secureApi(
+      request,
+      {
+        scope:
+          "account-support-payments-read",
+
+        requireAuth:
+          true,
+
+        blockSuspiciousHeaders:
+          true,
+
+        rateLimit: {
+          limit:
+            ACCOUNT_SUPPORT_PAYMENTS_RATE_LIMIT,
+
+          windowMs:
+            ACCOUNT_SUPPORT_PAYMENTS_RATE_WINDOW_MS,
+        },
+      }
+    );
+
+  if (!security.ok) {
+    return security.response;
+  }
+
+  const {
+    requestId,
+    user,
+  } = security;
+
+  /*
+   * secureApi is configured with requireAuth:true.
+   * This explicit guard keeps the route type-safe
+   * in case the shared helper return type still
+   * allows user to be nullable.
+   */
+  if (!user) {
+    return secureJson(
+      {
+        error:
+          "Authentication required.",
+
+        request_id:
+          requestId,
+      },
+      {
+        status: 401,
+        requestId,
+      }
+    );
+  }
+
   try {
-    const authorization =
-      request.headers.get(
-        "authorization"
-      );
-
-    if (
-      !authorization?.startsWith(
-        "Bearer "
-      )
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Authentication required.",
-        },
-        {
-          status: 401,
-        }
-      );
-    }
-
-    const accessToken =
-      authorization
-        .slice(7)
-        .trim();
-
-    if (!accessToken) {
-      return NextResponse.json(
-        {
-          error:
-            "Authentication required.",
-        },
-        {
-          status: 401,
-        }
-      );
-    }
-
-    const {
-      data: { user },
-      error: userError,
-    } =
-      await supabaseAdmin.auth.getUser(
-        accessToken
-      );
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Invalid or expired session.",
-        },
-        {
-          status: 401,
-        }
-      );
-    }
-
     const {
       data,
       error,
@@ -105,7 +114,9 @@ export async function GET(
               false,
           }
         )
-        .limit(100);
+        .limit(
+          ACCOUNT_SUPPORT_PAYMENTS_LIMIT
+        );
 
     if (error) {
       console.error(
@@ -113,13 +124,17 @@ export async function GET(
         error
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Support payment history could not be loaded.",
+
+          request_id:
+            requestId,
         },
         {
           status: 500,
+          requestId,
         }
       );
     }
@@ -161,14 +176,19 @@ export async function GET(
         })
       );
 
-    return NextResponse.json(
+    return secureJson(
       {
         payments,
+
         count:
           payments.length,
+
+        request_id:
+          requestId,
       },
       {
         status: 200,
+        requestId,
       }
     );
   } catch (error) {
@@ -177,13 +197,17 @@ export async function GET(
       error
     );
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Support payment history could not be loaded.",
+
+        request_id:
+          requestId,
       },
       {
         status: 500,
+        requestId,
       }
     );
   }

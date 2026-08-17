@@ -1,15 +1,26 @@
 import {
   NextRequest,
-  NextResponse,
 } from "next/server";
 
-import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
-import { requireAdminRole } from "../../../../../lib/admin/requireAdminRole";
+import {
+  supabaseAdmin,
+} from "../../../../../lib/supabaseAdmin";
+
+import {
+  secureAdminApi,
+} from "../../../../../lib/security/secureAdminApi";
+
+import {
+  secureJson,
+} from "../../../../../lib/security/requestSecurity";
 
 type AdminRole =
   | "owner"
   | "admin"
   | "moderator";
+
+const ADMIN_USER_DETAIL_RATE_LIMIT = 60;
+const ADMIN_USER_DETAIL_RATE_WINDOW_MS = 60_000;
 
 function isAdminRole(
   value: unknown
@@ -29,30 +40,47 @@ export async function GET(
     }>;
   }
 ) {
-  try {
-    /*
-     * User detail contains sensitive information:
-     * - email
-     * - IP addresses
-     * - support records
-     * - audit logs
-     *
-     * Therefore only owner/admin may access this endpoint.
-     */
-    const auth =
-      await requireAdminRole(
-        request,
-        [
+  const security =
+    await secureAdminApi(
+      request,
+      {
+        scope:
+          "admin-user-detail-read",
+
+        allowedRoles: [
           "owner",
           "admin",
-        ]
-      );
+        ],
 
-    if (!auth.ok) {
-      return auth.response;
-    }
+        blockSuspiciousHeaders:
+          true,
 
-    const { id } =
+        rateLimit: {
+          limit:
+            ADMIN_USER_DETAIL_RATE_LIMIT,
+
+          windowMs:
+            ADMIN_USER_DETAIL_RATE_WINDOW_MS,
+        },
+      }
+    );
+
+  if (!security.ok) {
+    return security.response;
+  }
+
+  const {
+    requestId,
+    user:
+      currentUser,
+    admin:
+      currentAdmin,
+  } = security;
+
+  try {
+    const {
+      id,
+    } =
       await context.params;
 
     const userId =
@@ -61,20 +89,27 @@ export async function GET(
         : "";
 
     if (!userId) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "User ID is required.",
+
+          request_id:
+            requestId,
         },
         {
           status: 400,
+          requestId,
         }
       );
     }
 
     const {
-      data: targetAdminRow,
-      error: targetAdminError,
+      data:
+        targetAdminRow,
+
+      error:
+        targetAdminError,
     } =
       await supabaseAdmin
         .from("admins")
@@ -93,13 +128,17 @@ export async function GET(
         targetAdminError
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "User role could not be checked.",
+
+          request_id:
+            requestId,
         },
         {
           status: 500,
+          requestId,
         }
       );
     }
@@ -111,36 +150,34 @@ export async function GET(
         ? targetAdminRow.role
         : null;
 
-    /*
-     * Admin cannot inspect Owner or another Admin's
-     * sensitive user-detail page.
-     *
-     * Owner can inspect everyone.
-     */
     if (
-      auth.admin.role ===
-        "admin" &&
+      currentAdmin.role === "admin" &&
       (
-        targetAdminRole ===
-          "owner" ||
-        targetAdminRole ===
-          "admin"
+        targetAdminRole === "owner" ||
+        targetAdminRole === "admin"
       )
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Owner access required to view this staff account.",
+
+          request_id:
+            requestId,
         },
         {
           status: 403,
+          requestId,
         }
       );
     }
 
     const {
-      data: authUserData,
-      error: authUserError,
+      data:
+        authUserData,
+
+      error:
+        authUserError,
     } =
       await supabaseAdmin
         .auth
@@ -153,13 +190,24 @@ export async function GET(
       authUserError ||
       !authUserData?.user
     ) {
-      return NextResponse.json(
+      if (authUserError) {
+        console.error(
+          "Admin user detail auth lookup error:",
+          authUserError
+        );
+      }
+
+      return secureJson(
         {
           error:
             "User could not be found.",
+
+          request_id:
+            requestId,
         },
         {
           status: 404,
+          requestId,
         }
       );
     }
@@ -258,57 +306,64 @@ export async function GET(
           .limit(200),
       ]);
 
-    if (
-      profileResult.error
-    ) {
+    if (profileResult.error) {
       console.error(
         "Profile error:",
         profileResult.error
       );
     }
 
-    if (
-      ipsResult.error
-    ) {
+    if (ipsResult.error) {
       console.error(
         "User IPs error:",
         ipsResult.error
       );
     }
 
-    if (
-      bansResult.error
-    ) {
+    if (bansResult.error) {
       console.error(
         "IP bans error:",
         bansResult.error
       );
     }
 
-    if (
-      campaignsResult.error
-    ) {
+    if (campaignsResult.error) {
       console.error(
         "Campaigns error:",
         campaignsResult.error
       );
     }
 
-    if (
-      supportsResult.error
-    ) {
+    if (supportsResult.error) {
       console.error(
         "Supports error:",
         supportsResult.error
       );
     }
 
-    if (
-      auditResult.error
-    ) {
+    if (auditResult.error) {
       console.error(
         "Audit error:",
         auditResult.error
+      );
+    }
+
+    if (
+      ipsResult.error ||
+      bansResult.error
+    ) {
+      return secureJson(
+        {
+          error:
+            "Sensitive user security data could not be loaded.",
+
+          request_id:
+            requestId,
+        },
+        {
+          status: 503,
+          requestId,
+        }
       );
     }
 
@@ -413,15 +468,21 @@ export async function GET(
         [],
     };
 
-    return NextResponse.json(
+    return secureJson(
       {
         user,
 
         current_admin_role:
-          auth.admin.role,
+          currentAdmin.role,
 
         current_admin_user_id:
-          auth.user.id,
+          currentUser.id,
+
+        request_id:
+          requestId,
+      },
+      {
+        requestId,
       }
     );
   } catch (error) {
@@ -430,13 +491,17 @@ export async function GET(
       error
     );
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Unexpected server error.",
+
+        request_id:
+          requestId,
       },
       {
         status: 500,
+        requestId,
       }
     );
   }

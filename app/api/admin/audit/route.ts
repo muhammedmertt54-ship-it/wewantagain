@@ -1,30 +1,68 @@
 import {
   NextRequest,
-  NextResponse,
 } from "next/server";
 
-import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
-import { requireAdminRole } from "../../../../lib/admin/requireAdminRole";
+import {
+  supabaseAdmin,
+} from "../../../../lib/supabaseAdmin";
+
+import {
+  secureAdminApi,
+} from "../../../../lib/security/secureAdminApi";
+
+import {
+  secureJson,
+} from "../../../../lib/security/requestSecurity";
+
+const ADMIN_AUDIT_READ_RATE_LIMIT =
+  60;
+
+const ADMIN_AUDIT_RATE_WINDOW_MS =
+  60_000;
+
+const ADMIN_AUDIT_LIMIT =
+  500;
 
 export async function GET(
   request: NextRequest
 ) {
-  try {
-    const auth =
-      await requireAdminRole(
-        request,
-        [
+  const security =
+    await secureAdminApi(
+      request,
+      {
+        scope:
+          "admin-audit-read",
+
+        allowedRoles: [
           "owner",
           "admin",
-        ]
-      );
+        ],
 
-    if (!auth.ok) {
-      return auth.response;
-    }
+        blockSuspiciousHeaders:
+          true,
 
+        rateLimit: {
+          limit:
+            ADMIN_AUDIT_READ_RATE_LIMIT,
+
+          windowMs:
+            ADMIN_AUDIT_RATE_WINDOW_MS,
+        },
+      }
+    );
+
+  if (!security.ok) {
+    return security.response;
+  }
+
+  const {
+    requestId,
+  } = security;
+
+  try {
     const {
-      data: logs,
+      data:
+        logs,
       error,
     } =
       await supabaseAdmin
@@ -41,7 +79,9 @@ export async function GET(
               false,
           }
         )
-        .limit(500);
+        .limit(
+          ADMIN_AUDIT_LIMIT
+        );
 
     if (error) {
       console.error(
@@ -49,21 +89,31 @@ export async function GET(
         error
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Audit logs could not be loaded.",
+
+          request_id:
+            requestId,
         },
         {
           status: 500,
+          requestId,
         }
       );
     }
 
-    return NextResponse.json(
+    return secureJson(
       {
         logs:
           logs ?? [],
+
+        request_id:
+          requestId,
+      },
+      {
+        requestId,
       }
     );
   } catch (error) {
@@ -72,13 +122,17 @@ export async function GET(
       error
     );
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Unexpected server error.",
+
+        request_id:
+          requestId,
       },
       {
         status: 500,
+        requestId,
       }
     );
   }

@@ -1,6 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
-import { requireAdminRole } from "../../../../lib/admin/requireAdminRole";
+import {
+  secureAdminApi,
+} from "../../../../lib/security/secureAdminApi";
+import {
+  parseJsonBody,
+  secureJson,
+} from "../../../../lib/security/requestSecurity";
 
 const NOTIFICATION_TYPES = [
   "info",
@@ -12,6 +18,29 @@ const NOTIFICATION_TYPES = [
 
 type NotificationType =
   (typeof NOTIFICATION_TYPES)[number];
+
+const MAX_BODY_BYTES =
+  16_000;
+
+const NOTIFICATION_READ_RATE_LIMIT =
+  60;
+
+const NOTIFICATION_WRITE_RATE_LIMIT =
+  30;
+
+const NOTIFICATION_RATE_WINDOW_MS =
+  60_000;
+
+type NotificationBody = {
+  id?: unknown;
+  type?: unknown;
+  title?: unknown;
+  message?: unknown;
+  is_active?: unknown;
+  dismissible?: unknown;
+  starts_at?: unknown;
+  ends_at?: unknown;
+};
 
 async function writeAuditLog({
   adminUserId,
@@ -100,9 +129,9 @@ function cleanDateTime(
    * datetime-local input:
    * 2026-08-13T20:30
    *
-   * BÃ¶yle bir deÄŸer timezone iÃ§ermez.
-   * WeWantAgain ÅŸu anda TÃ¼rkiye
-   * saatini kullanÄ±yor: UTC+3.
+   * BÃƒÂ¶yle bir deÃ„Å¸er timezone iÃƒÂ§ermez.
+   * WeWantAgain Ã…Å¸u anda TÃƒÂ¼rkiye
+   * saatini kullanÃ„Â±yor: UTC+3.
    */
   const hasTimezone =
     /(?:Z|[+-]\d{2}:?\d{2})$/i.test(
@@ -192,22 +221,46 @@ function validateDates(
 /*
  * GET
  *
- * Admin panelindeki bÃ¼tÃ¼n
+ * Admin panelindeki bÃƒÂ¼tÃƒÂ¼n
  * bildirimleri getirir.
  */
 export async function GET(
   request: NextRequest
 ) {
-  try {
-    const auth =
-      await requireAdminRole(request, [
-        "owner",
-        "admin",
-      ]);
+  const security =
+    await secureAdminApi(
+      request,
+      {
+        scope:
+          "admin-notifications-read",
 
-    if (!auth.ok) {
-      return auth.response;
-    }
+        allowedRoles: [
+          "owner",
+          "admin",
+        ],
+
+        blockSuspiciousHeaders:
+          true,
+
+        rateLimit: {
+          limit:
+            NOTIFICATION_READ_RATE_LIMIT,
+
+          windowMs:
+            NOTIFICATION_RATE_WINDOW_MS,
+        },
+      }
+    );
+
+  if (!security.ok) {
+    return security.response;
+  }
+
+  const {
+    requestId,
+  } = security;
+
+  try {
 
     const {
       data,
@@ -244,38 +297,39 @@ export async function GET(
         error
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Notifications could not be loaded.",
-
-          details:
-            error.message,
         },
-        {
-          status: 500,
-        }
+        { status: 500, requestId }
       );
     }
 
-    return NextResponse.json({
-      notifications:
-        data ?? [],
-    });
+    return secureJson(
+      {
+        notifications:
+          data ?? [],
+
+        request_id:
+          requestId,
+      },
+      {
+        requestId,
+      }
+    );
   } catch (error) {
     console.error(
       "Notifications GET error:",
       error
     );
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Unexpected server error.",
       },
-      {
-        status: 500,
-      }
+      { status: 500, requestId }
     );
   }
 }
@@ -283,24 +337,78 @@ export async function GET(
 /*
  * POST
  *
- * Yeni global bildirim oluÅŸturur.
+ * Yeni global bildirim oluÃ…Å¸turur.
  */
 export async function POST(
   request: NextRequest
 ) {
-  try {
-    const auth =
-      await requireAdminRole(request, [
-        "owner",
-        "admin",
-      ]);
+  const security =
+    await secureAdminApi(
+      request,
+      {
+        scope:
+          "admin-notifications-write",
 
-    if (!auth.ok) {
-      return auth.response;
+        allowedRoles: [
+          "owner",
+          "admin",
+        ],
+
+        requireSameOrigin:
+          true,
+
+        blockSuspiciousHeaders:
+          true,
+
+        rateLimit: {
+          limit:
+            NOTIFICATION_WRITE_RATE_LIMIT,
+
+          windowMs:
+            NOTIFICATION_RATE_WINDOW_MS,
+        },
+      }
+    );
+
+  if (!security.ok) {
+    return security.response;
+  }
+
+  const {
+    requestId,
+    user,
+  } = security;
+
+  try {
+    const parsed =
+      await parseJsonBody<NotificationBody>(
+        request,
+        {
+          maxBytes:
+            MAX_BODY_BYTES,
+        }
+      );
+
+    if (!parsed.ok) {
+      return secureJson(
+        {
+          error:
+            parsed.error,
+
+          request_id:
+            requestId,
+        },
+        {
+          status:
+            parsed.status,
+
+          requestId,
+        }
+      );
     }
 
     const body =
-      await request.json();
+      parsed.body;
 
     const type =
       cleanType(
@@ -338,26 +446,22 @@ export async function POST(
       );
 
     if (!title) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Notification title is required.",
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
     if (!message) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Notification message is required.",
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
@@ -368,14 +472,12 @@ export async function POST(
       );
 
     if (dateError) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             dateError,
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
@@ -409,7 +511,7 @@ export async function POST(
           endsAt,
 
         created_by:
-          auth.user.id,
+          user.id,
 
         created_at:
           now,
@@ -426,23 +528,18 @@ export async function POST(
         error
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Notification could not be created.",
-
-          details:
-            error.message,
         },
-        {
-          status: 500,
-        }
+        { status: 500, requestId }
       );
     }
 
     await writeAuditLog({
       adminUserId:
-        auth.user.id,
+        user.id,
 
       action:
         "notification-created",
@@ -471,16 +568,14 @@ export async function POST(
       },
     });
 
-    return NextResponse.json(
+    return secureJson(
       {
         success: true,
 
         notification:
           data,
       },
-      {
-        status: 201,
-      }
+      { status: 201, requestId }
     );
   } catch (error) {
     console.error(
@@ -488,14 +583,12 @@ export async function POST(
       error
     );
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Unexpected server error.",
       },
-      {
-        status: 500,
-      }
+      { status: 500, requestId }
     );
   }
 }
@@ -503,27 +596,81 @@ export async function POST(
 /*
  * PATCH
  *
- * Var olan bildirimi dÃ¼zenler.
+ * Var olan bildirimi dÃƒÂ¼zenler.
  *
  * Aktif/pasif yapmak da
- * bunun Ã¼zerinden yapÄ±lÄ±r.
+ * bunun ÃƒÂ¼zerinden yapÃ„Â±lÃ„Â±r.
  */
 export async function PATCH(
   request: NextRequest
 ) {
-  try {
-    const auth =
-      await requireAdminRole(request, [
-        "owner",
-        "admin",
-      ]);
+  const security =
+    await secureAdminApi(
+      request,
+      {
+        scope:
+          "admin-notifications-write",
 
-    if (!auth.ok) {
-      return auth.response;
+        allowedRoles: [
+          "owner",
+          "admin",
+        ],
+
+        requireSameOrigin:
+          true,
+
+        blockSuspiciousHeaders:
+          true,
+
+        rateLimit: {
+          limit:
+            NOTIFICATION_WRITE_RATE_LIMIT,
+
+          windowMs:
+            NOTIFICATION_RATE_WINDOW_MS,
+        },
+      }
+    );
+
+  if (!security.ok) {
+    return security.response;
+  }
+
+  const {
+    requestId,
+    user,
+  } = security;
+
+  try {
+    const parsed =
+      await parseJsonBody<NotificationBody>(
+        request,
+        {
+          maxBytes:
+            MAX_BODY_BYTES,
+        }
+      );
+
+    if (!parsed.ok) {
+      return secureJson(
+        {
+          error:
+            parsed.error,
+
+          request_id:
+            requestId,
+        },
+        {
+          status:
+            parsed.status,
+
+          requestId,
+        }
+      );
     }
 
     const body =
-      await request.json();
+      parsed.body;
 
     const id =
       parseId(
@@ -531,14 +678,12 @@ export async function PATCH(
       );
 
     if (!id) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Invalid notification ID.",
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
@@ -563,26 +708,22 @@ export async function PATCH(
         existingError
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Notification could not be checked.",
         },
-        {
-          status: 500,
-        }
+        { status: 500, requestId }
       );
     }
 
     if (!existing) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Notification not found.",
         },
-        {
-          status: 404,
-        }
+        { status: 404, requestId }
       );
     }
 
@@ -643,26 +784,22 @@ export async function PATCH(
           );
 
     if (!nextTitle) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Notification title is required.",
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
     if (!nextMessage) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Notification message is required.",
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
@@ -673,14 +810,12 @@ export async function PATCH(
       );
 
     if (dateError) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             dateError,
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
@@ -730,17 +865,12 @@ export async function PATCH(
         error
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Notification could not be updated.",
-
-          details:
-            error.message,
         },
-        {
-          status: 500,
-        }
+        { status: 500, requestId }
       );
     }
 
@@ -759,7 +889,7 @@ export async function PATCH(
 
     await writeAuditLog({
       adminUserId:
-        auth.user.id,
+        user.id,
 
       action,
 
@@ -787,26 +917,32 @@ export async function PATCH(
       },
     });
 
-    return NextResponse.json({
-      success: true,
+    return secureJson(
+      {
+        success: true,
 
-      notification:
-        data,
-    });
+        notification:
+          data,
+
+        request_id:
+          requestId,
+      },
+      {
+        requestId,
+      }
+    );
   } catch (error) {
     console.error(
       "Notifications PATCH error:",
       error
     );
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Unexpected server error.",
       },
-      {
-        status: 500,
-      }
+      { status: 500, requestId }
     );
   }
 }
@@ -816,7 +952,7 @@ export async function PATCH(
  *
  * Bildirimi tamamen siler.
  *
- * ÅunlarÄ±n ikisini de kabul eder:
+ * Ã…ÂunlarÃ„Â±n ikisini de kabul eder:
  *
  * DELETE /api/admin/notifications?id=12
  *
@@ -826,16 +962,44 @@ export async function PATCH(
 export async function DELETE(
   request: NextRequest
 ) {
-  try {
-    const auth =
-      await requireAdminRole(request, [
-        "owner",
-        "admin",
-      ]);
+  const security =
+    await secureAdminApi(
+      request,
+      {
+        scope:
+          "admin-notifications-write",
 
-    if (!auth.ok) {
-      return auth.response;
-    }
+        allowedRoles: [
+          "owner",
+          "admin",
+        ],
+
+        requireSameOrigin:
+          true,
+
+        blockSuspiciousHeaders:
+          true,
+
+        rateLimit: {
+          limit:
+            NOTIFICATION_WRITE_RATE_LIMIT,
+
+          windowMs:
+            NOTIFICATION_RATE_WINDOW_MS,
+        },
+      }
+    );
+
+  if (!security.ok) {
+    return security.response;
+  }
+
+  const {
+    requestId,
+    user,
+  } = security;
+
+  try {
 
     let id =
       parseId(
@@ -845,28 +1009,60 @@ export async function DELETE(
       );
 
     if (!id) {
-      try {
-        const body =
-          await request.json();
+      const contentLength =
+        Number(
+          request.headers.get(
+            "content-length"
+          ) ?? "0"
+        );
+
+      if (
+        Number.isFinite(
+          contentLength
+        ) &&
+        contentLength > 0
+      ) {
+        const parsed =
+          await parseJsonBody<NotificationBody>(
+            request,
+            {
+              maxBytes:
+                MAX_BODY_BYTES,
+            }
+          );
+
+        if (!parsed.ok) {
+          return secureJson(
+            {
+              error:
+                parsed.error,
+
+              request_id:
+                requestId,
+            },
+            {
+              status:
+                parsed.status,
+
+              requestId,
+            }
+          );
+        }
 
         id =
           parseId(
-            body?.id
+            parsed.body?.id
           );
-      } catch {
-        // Body boÅŸ olabilir.
       }
     }
 
     if (!id) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Invalid notification ID.",
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
@@ -898,26 +1094,22 @@ export async function DELETE(
         existingError
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Notification could not be checked.",
         },
-        {
-          status: 500,
-        }
+        { status: 500, requestId }
       );
     }
 
     if (!existing) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Notification not found.",
         },
-        {
-          status: 404,
-        }
+        { status: 404, requestId }
       );
     }
 
@@ -940,23 +1132,18 @@ export async function DELETE(
         deleteError
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Notification could not be deleted.",
-
-          details:
-            deleteError.message,
         },
-        {
-          status: 500,
-        }
+        { status: 500, requestId }
       );
     }
 
     await writeAuditLog({
       adminUserId:
-        auth.user.id,
+        user.id,
 
       action:
         "notification-deleted",
@@ -976,23 +1163,29 @@ export async function DELETE(
       },
     });
 
-    return NextResponse.json({
-      success: true,
-    });
+    return secureJson(
+      {
+        success: true,
+
+        request_id:
+          requestId,
+      },
+      {
+        requestId,
+      }
+    );
   } catch (error) {
     console.error(
       "Notifications DELETE error:",
       error
     );
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Unexpected server error.",
       },
-      {
-        status: 500,
-      }
+      { status: 500, requestId }
     );
   }
 }

@@ -1,7 +1,14 @@
 import {
   NextRequest,
-  NextResponse,
 } from "next/server";
+
+import {
+  secureApi,
+} from "../../../../lib/security/secureApi";
+
+import {
+  secureJson,
+} from "../../../../lib/security/requestSecurity";
 
 /*
  * IMPORTANT:
@@ -18,16 +25,63 @@ import {
  * intentionally disabled.
  */
 
+const CONFIRM_RATE_LIMIT =
+  10;
+
+const CONFIRM_RATE_WINDOW_MS =
+  60_000;
+
 export async function POST(
-  _request: NextRequest
+  request: NextRequest
 ) {
-  return NextResponse.json(
+  const security =
+    await secureApi(
+      request,
+      {
+        scope:
+          "support-payment-confirm-disabled",
+
+        requireAuth:
+          false,
+
+        requireSameOrigin:
+          true,
+
+        blockSuspiciousHeaders:
+          true,
+
+        rateLimit: {
+          limit:
+            CONFIRM_RATE_LIMIT,
+
+          windowMs:
+            CONFIRM_RATE_WINDOW_MS,
+        },
+      }
+    );
+
+  if (!security.ok) {
+    return security.response;
+  }
+
+  const {
+    requestId,
+  } = security;
+
+  return secureJson(
     {
       error:
         "Payment confirmation is not configured yet.",
+
+      code:
+        "PAYMENT_CONFIRMATION_DISABLED",
+
+      request_id:
+        requestId,
     },
     {
       status: 503,
+      requestId,
     }
   );
 }

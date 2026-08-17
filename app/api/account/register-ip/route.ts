@@ -1,183 +1,272 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import {
+  NextRequest,
+} from "next/server";
 
-function getClientIp(request: NextRequest) {
-  const forwardedFor = request.headers.get("x-forwarded-for");
+import {
+  supabaseAdmin,
+} from "../../../../lib/supabaseAdmin";
 
-  if (forwardedFor) {
-    const firstIp = forwardedFor
-      .split(",")[0]
-      ?.trim();
+import {
+  secureApi,
+} from "../../../../lib/security/secureApi";
 
-    if (firstIp) {
-      return firstIp;
-    }
-  }
+import {
+  secureJson,
+} from "../../../../lib/security/requestSecurity";
 
-  const realIp = request.headers.get("x-real-ip");
+const REGISTER_IP_RATE_LIMIT =
+  30;
 
-  if (realIp) {
-    return realIp.trim();
-  }
+const REGISTER_IP_RATE_WINDOW_MS =
+  60_000;
 
-  return null;
-}
+export async function POST(
+  request: NextRequest
+) {
+  const security =
+    await secureApi(
+      request,
+      {
+        scope:
+          "account-register-ip",
 
-export async function POST(request: NextRequest) {
-  try {
-    const authorization =
-      request.headers.get("authorization");
+        requireAuth:
+          true,
 
-    if (
-      !authorization ||
-      !authorization.startsWith("Bearer ")
-    ) {
-      return NextResponse.json(
-        {
-          error: "Unauthorized",
+        requireSameOrigin:
+          true,
+
+        blockSuspiciousHeaders:
+          true,
+
+        rateLimit: {
+          limit:
+            REGISTER_IP_RATE_LIMIT,
+
+          windowMs:
+            REGISTER_IP_RATE_WINDOW_MS,
         },
-        {
-          status: 401,
-        }
-      );
-    }
-
-    const accessToken =
-      authorization.slice(7);
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabaseAdmin.auth.getUser(
-      accessToken
+      }
     );
 
-    if (userError || !user) {
-      return NextResponse.json(
-        {
-          error: "Invalid session",
-        },
-        {
-          status: 401,
-        }
-      );
-    }
+  if (!security.ok) {
+    return security.response;
+  }
 
-    const ipAddress =
-      getClientIp(request);
+  const {
+    requestId,
+    clientIp,
+    user,
+  } = security;
 
-    if (!ipAddress) {
-      return NextResponse.json(
+  /*
+   * secureApi is configured with requireAuth:true,
+   * but its shared TypeScript return type still allows
+   * user to be null. Keep this explicit guard so the
+   * route is both runtime-safe and type-safe.
+   */
+  if (!user) {
+    return secureJson(
+      {
+        error:
+          "Authentication required.",
+
+        request_id:
+          requestId,
+      },
+      {
+        status: 401,
+        requestId,
+      }
+    );
+  }
+
+  try {
+    if (
+      !clientIp ||
+      clientIp === "unknown"
+    ) {
+      return secureJson(
         {
           error:
             "IP address could not be detected.",
+
+          request_id:
+            requestId,
         },
         {
           status: 400,
+          requestId,
         }
       );
     }
 
     const now =
-      new Date().toISOString();
+      new Date()
+        .toISOString();
 
     const {
-      data: existing,
-      error: existingError,
-    } = await supabaseAdmin
-      .from("user_ips")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("ip_address", ipAddress)
-      .maybeSingle();
+      data:
+        existing,
 
-    if (existingError) {
+      error:
+        existingError,
+    } =
+      await supabaseAdmin
+        .from(
+          "user_ips"
+        )
+        .select(
+          "id"
+        )
+        .eq(
+          "user_id",
+          user.id
+        )
+        .eq(
+          "ip_address",
+          clientIp
+        )
+        .maybeSingle();
+
+    if (
+      existingError
+    ) {
       console.error(
         "IP lookup error:",
         existingError
       );
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "IP information could not be checked.",
+
+          request_id:
+            requestId,
         },
         {
           status: 500,
+          requestId,
         }
       );
     }
 
     if (existing) {
-      const { error: updateError } =
+      const {
+        error:
+          updateError,
+      } =
         await supabaseAdmin
-          .from("user_ips")
+          .from(
+            "user_ips"
+          )
           .update({
-            last_seen_at: now,
+            last_seen_at:
+              now,
           })
-          .eq("id", existing.id);
+          .eq(
+            "id",
+            existing.id
+          );
 
-      if (updateError) {
+      if (
+        updateError
+      ) {
         console.error(
           "IP update error:",
           updateError
         );
 
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "IP information could not be updated.",
+
+            request_id:
+              requestId,
           },
           {
             status: 500,
+            requestId,
           }
         );
       }
     } else {
-      const { error: insertError } =
+      const {
+        error:
+          insertError,
+      } =
         await supabaseAdmin
-          .from("user_ips")
+          .from(
+            "user_ips"
+          )
           .insert({
-            user_id: user.id,
-            ip_address: ipAddress,
-            first_seen_at: now,
-            last_seen_at: now,
+            user_id:
+              user.id,
+
+            ip_address:
+              clientIp,
+
+            first_seen_at:
+              now,
+
+            last_seen_at:
+              now,
           });
 
-      if (insertError) {
+      if (
+        insertError
+      ) {
         console.error(
           "IP insert error:",
           insertError
         );
 
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "IP information could not be saved.",
+
+            request_id:
+              requestId,
           },
           {
             status: 500,
+            requestId,
           }
         );
       }
     }
 
-    return NextResponse.json({
-      success: true,
-    });
+    return secureJson(
+      {
+        success: true,
+
+        request_id:
+          requestId,
+      },
+      {
+        requestId,
+      }
+    );
   } catch (error) {
     console.error(
       "Register IP API error:",
       error
     );
 
-    return NextResponse.json(
+    return secureJson(
       {
         error:
           "Unexpected server error.",
+
+        request_id:
+          requestId,
       },
       {
         status: 500,
+        requestId,
       }
     );
   }

@@ -1,6 +1,5 @@
 import {
   NextRequest,
-  NextResponse,
 } from "next/server";
 
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
@@ -70,12 +69,12 @@ function makeSlug(
       "tr-TR"
     )
     .trim()
-    .replace(/ÄŸ/g, "g")
-    .replace(/Ã¼/g, "u")
-    .replace(/ÅŸ/g, "s")
-    .replace(/Ä±/g, "i")
-    .replace(/Ã¶/g, "o")
-    .replace(/Ã§/g, "c")
+    .replace(/ğ/g, "g")
+    .replace(/ü/g, "u")
+    .replace(/ş/g, "s")
+    .replace(/ı/g, "i")
+    .replace(/ö/g, "o")
+    .replace(/ç/g, "c")
     .replace(
       /[^a-z0-9]+/g,
       "-"
@@ -175,11 +174,11 @@ async function submissionsAreEnabled() {
     );
 
     /*
-     * Ayarlar okunamÄ±yorsa gÃ¼venlik
-     * aÃ§Ä±sÄ±ndan fail-closed davranÄ±yoruz.
+     * Ayarlar okunamıyorsa güvenlik
+     * açısından fail-closed davranıyoruz.
      *
      * Yani hata halinde kampanya
-     * gÃ¶nderimine izin vermiyoruz.
+     * gönderimine izin vermiyoruz.
      */
     return {
       enabled: false,
@@ -320,7 +319,7 @@ export async function POST(
 
     /*
      * 2. Admin Site Management
-     * ayarÄ±nÄ± server tarafÄ±nda kontrol et.
+     * ayarını server tarafında kontrol et.
      */
     const submissionStatus =
       await submissionsAreEnabled();
@@ -328,30 +327,26 @@ export async function POST(
     if (
       submissionStatus.databaseError
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Campaign submissions are temporarily unavailable.",
         },
-        {
-          status: 503,
-        }
+        { status: 503, requestId }
       );
     }
 
     if (
       !submissionStatus.enabled
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Campaign submissions are currently disabled.",
           code:
             "SUBMISSIONS_DISABLED",
         },
-        {
-          status: 403,
-        }
+        { status: 403, requestId }
       );
     }
 
@@ -517,7 +512,7 @@ export async function POST(
       );
 
     /*
-     * 4. Metin doÄŸrulamalarÄ±
+     * 4. Metin doğrulamaları
      */
     if (
       !title ||
@@ -526,14 +521,12 @@ export async function POST(
       !target ||
       !description
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Please fill in all required fields.",
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
@@ -543,14 +536,12 @@ export async function POST(
           (typeof ALLOWED_CATEGORIES)[number]
       )
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Invalid campaign category.",
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
@@ -565,59 +556,51 @@ export async function POST(
       numericGoal >
         100_000_000
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Please enter a valid supporter goal.",
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
     if (
       !copyrightConfirmed
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Image rights confirmation is required.",
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
     /*
-     * 5. Dosya kontrolÃ¼
+     * 5. Dosya kontrolü
      */
     if (
       !(image instanceof File)
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Campaign image is required.",
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
     if (
       image.size <= 0
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Campaign image is empty.",
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
@@ -625,22 +608,20 @@ export async function POST(
       image.size >
       MAX_FILE_SIZE
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Image must be 5 MB or smaller.",
         },
-        {
-          status: 413,
-        }
+        { status: 413, requestId }
       );
     }
 
     /*
-     * TarayÄ±cÄ±nÄ±n gÃ¶nderdiÄŸi
-     * image.type deÄŸerine gÃ¼venmiyoruz.
+     * Tarayıcının gönderdiği
+     * image.type değerine güvenmiyoruz.
      *
-     * DosyanÄ±n gerÃ§ek ilk byte'larÄ±nÄ±
+     * Dosyanın gerçek ilk byte'larını
      * kontrol ediyoruz.
      */
     const imageBuffer =
@@ -659,14 +640,12 @@ export async function POST(
     if (
       !imageInfo
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Only real JPG, PNG or WebP images are allowed.",
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
@@ -681,14 +660,12 @@ export async function POST(
     if (
       !slugBase
     ) {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Could not create a valid campaign URL.",
         },
-        {
-          status: 400,
-        }
+        { status: 400, requestId }
       );
     }
 
@@ -751,14 +728,12 @@ export async function POST(
       uploadedImagePath =
         "";
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Image could not be uploaded. Please try again.",
         },
-        {
-          status: 500,
-        }
+        { status: 500, requestId }
       );
     }
 
@@ -795,20 +770,18 @@ export async function POST(
       uploadedImagePath =
         "";
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Image URL could not be created.",
         },
-        {
-          status: 500,
-        }
+        { status: 500, requestId }
       );
     }
 
     /*
-     * 10. KampanyayÄ± server tarafÄ±nda
-     * oluÅŸtur.
+     * 10. Kampanyayı server tarafında
+     * oluştur.
      */
     const {
       data: campaign,
@@ -871,8 +844,8 @@ export async function POST(
       );
 
       /*
-       * DB baÅŸarÄ±sÄ±z olursa
-       * orphan image bÄ±rakma.
+       * DB başarısız olursa
+       * orphan image bırakma.
        */
       if (
         uploadedImagePath
@@ -893,30 +866,26 @@ export async function POST(
         campaignError.code ===
         "23505"
       ) {
-        return NextResponse.json(
+        return secureJson(
           {
             error:
               "A similar campaign already exists.",
           },
-          {
-            status: 409,
-          }
+          { status: 409, requestId }
         );
       }
 
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "Campaign could not be created. Please try again.",
         },
-        {
-          status: 500,
-        }
+        { status: 500, requestId }
       );
     }
 
     /*
-     * ArtÄ±k cleanup yapÄ±lmamalÄ±.
+     * Artık cleanup yapılmamalı.
      */
     uploadedImagePath =
       "";
@@ -946,7 +915,7 @@ export async function POST(
 
     /*
      * Beklenmeyen hata halinde bile
-     * yÃ¼klenmiÅŸ resmi temizlemeye Ã§alÄ±ÅŸ.
+     * yüklenmiş resmi temizlemeye çalış.
      */
     if (
       uploadedImagePath
